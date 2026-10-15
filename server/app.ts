@@ -60,4 +60,13 @@ apiRouter.get('/health', (_req, res) => {
 app.use('/api', apiRouter);
 app.use('/', apiRouter);
 
+// Global JSON error handling middleware
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[Global API Error]:', err);
+  const status = typeof err.status === 'number' ? err.status : 500;
+  res.status(status).json({
+    error: err.message || 'An internal server error occurred.',
+  });
+});
+
 export default app;

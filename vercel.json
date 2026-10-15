@@ -2,6 +2,11 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/*.ts": {
+      "includeFiles": "academy.db"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",

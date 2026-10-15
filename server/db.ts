@@ -15,14 +15,23 @@ let DB_PATH: string;
 
 if (isServerless) {
   const tmpDbPath = path.resolve('/tmp', 'academy.db');
-  const projectDbPath = path.resolve(process.cwd(), 'academy.db');
+  const candidates = [
+    path.resolve(process.cwd(), 'academy.db'),
+    path.resolve(process.cwd(), '..', 'academy.db'),
+    path.resolve('/var/task', 'academy.db'),
+  ];
 
-  // Copy existing seeded academy.db to /tmp if it exists and /tmp doesn't have it yet
-  if (!fs.existsSync(tmpDbPath) && fs.existsSync(projectDbPath)) {
-    try {
-      fs.copyFileSync(projectDbPath, tmpDbPath);
-    } catch (err) {
-      console.warn('[Database] Could not copy initial academy.db to /tmp:', err);
+  if (!fs.existsSync(tmpDbPath)) {
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        try {
+          fs.copyFileSync(cand, tmpDbPath);
+          console.log(`[Database] Cloned pre-seeded database from ${cand} to ${tmpDbPath}`);
+          break;
+        } catch (err) {
+          console.warn(`[Database] Could not copy ${cand} to ${tmpDbPath}:`, err);
+        }
+      }
     }
   }
   DB_PATH = tmpDbPath;
@@ -35,8 +44,13 @@ export const db = new DatabaseSync(DB_PATH);
 let dbInitialized = false;
 export function ensureDatabaseInitialized(): void {
   if (dbInitialized) return;
-  initDatabase();
-  dbInitialized = true;
+  try {
+    initDatabase();
+    dbInitialized = true;
+  } catch (err) {
+    console.error('[Database] Error initializing database schema/seeds:', err);
+    throw err;
+  }
 }
 
 // Type-safe DB helper wrappers

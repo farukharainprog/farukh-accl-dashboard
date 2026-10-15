@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express';
-import { db, getSetting, setSetting, logAudit, getKarachiDateKey, getKarachiTimeString } from '../db.js';
+import { db, queryOne, getSetting, setSetting, logAudit, getKarachiDateKey, getKarachiTimeString } from '../db.js';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth.js';
 
 export const settingsRouter = Router();
@@ -54,34 +54,39 @@ settingsRouter.put('/', authMiddleware, requireRole('owner'), (req: AuthRequest,
 
 // Owner/Admin: Overview metrics for management dashboard
 settingsRouter.get('/admin-stats', authMiddleware, requireRole('owner', 'admin'), (_req, res: Response) => {
-  const totalStudents = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'student' AND status = 'active'").get() as { c: number }).c;
-  const pendingStudents = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'student' AND status = 'pending'").get() as { c: number }).c;
-  const totalTeachers = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'teacher' AND status = 'active'").get() as { c: number }).c;
-  const pendingTeachers = (db.prepare("SELECT COUNT(*) as c FROM teacher_applications WHERE status = 'pending'").get() as { c: number }).c;
-  const pendingAdmissions = (db.prepare("SELECT COUNT(*) as c FROM student_admissions WHERE status = 'pending'").get() as { c: number }).c;
+  try {
+    const totalStudents = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM users WHERE role = 'student' AND status = 'active'")?.c || 0;
+    const pendingStudents = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM users WHERE role = 'student' AND status = 'pending'")?.c || 0;
+    const totalTeachers = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM users WHERE role = 'teacher' AND status = 'active'")?.c || 0;
+    const pendingTeachers = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM teacher_applications WHERE status = 'pending'")?.c || 0;
+    const pendingAdmissions = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM student_admissions WHERE status = 'pending'")?.c || 0;
 
-  const totalTasks = (db.prepare("SELECT COUNT(*) as c FROM tasks WHERE status = 'active'").get() as { c: number }).c;
-  const pendingSubmissions = (db.prepare("SELECT COUNT(*) as c FROM submissions WHERE status = 'submitted'").get() as { c: number }).c;
-  const approvedSubmissions = (db.prepare("SELECT COUNT(*) as c FROM submissions WHERE status = 'approved'").get() as { c: number }).c;
-  const needsCorrectionSubmissions = (db.prepare("SELECT COUNT(*) as c FROM submissions WHERE status IN ('needs_correction', 'rejected')").get() as { c: number }).c;
+    const totalTasks = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM tasks WHERE status = 'active'")?.c || 0;
+    const pendingSubmissions = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM submissions WHERE status = 'submitted'")?.c || 0;
+    const approvedSubmissions = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM submissions WHERE status = 'approved'")?.c || 0;
+    const needsCorrectionSubmissions = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM submissions WHERE status IN ('needs_correction', 'rejected')")?.c || 0;
 
-  const todayKey = getKarachiDateKey();
-  const todayCheckins = (db.prepare("SELECT COUNT(*) as c FROM attendance_sessions WHERE date_key = ?").get(todayKey) as { c: number }).c;
-  const activeNow = (db.prepare("SELECT COUNT(*) as c FROM attendance_sessions WHERE status = 'active'").get() as { c: number }).c;
+    const todayKey = getKarachiDateKey();
+    const todayCheckins = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM attendance_sessions WHERE date_key = ?", todayKey)?.c || 0;
+    const activeNow = queryOne<{ c: number }>("SELECT COUNT(*) as c FROM attendance_sessions WHERE status = 'active'")?.c || 0;
 
-  res.json({
-    totalStudents,
-    pendingStudents,
-    totalTeachers,
-    pendingTeachers,
-    pendingAdmissions,
-    totalTasks,
-    pendingSubmissions,
-    approvedSubmissions,
-    needsCorrectionSubmissions,
-    todayCheckins,
-    activeNow,
-    todayKey,
-    currentTime: getKarachiTimeString(),
-  });
+    res.json({
+      totalStudents,
+      pendingStudents,
+      totalTeachers,
+      pendingTeachers,
+      pendingAdmissions,
+      totalTasks,
+      pendingSubmissions,
+      approvedSubmissions,
+      needsCorrectionSubmissions,
+      todayCheckins,
+      activeNow,
+      todayKey,
+      currentTime: getKarachiTimeString(),
+    });
+  } catch (error: any) {
+    console.error('[Admin Stats Error]:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch admin stats' });
+  }
 });
