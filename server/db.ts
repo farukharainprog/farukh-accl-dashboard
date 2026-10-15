@@ -1,10 +1,43 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { ORIGINAL_TASKS } from './seedData.js';
 
-const DB_PATH = path.resolve(process.cwd(), 'academy.db');
+// Determine if running in Vercel Serverless Function or AWS Lambda
+const isServerless = Boolean(
+  process.env.VERCEL || 
+  process.env.AWS_LAMBDA_FUNCTION_NAME || 
+  process.env.LAMBDA_TASK_ROOT
+);
+
+let DB_PATH: string;
+
+if (isServerless) {
+  const tmpDbPath = path.resolve('/tmp', 'academy.db');
+  const projectDbPath = path.resolve(process.cwd(), 'academy.db');
+
+  // Copy existing seeded academy.db to /tmp if it exists and /tmp doesn't have it yet
+  if (!fs.existsSync(tmpDbPath) && fs.existsSync(projectDbPath)) {
+    try {
+      fs.copyFileSync(projectDbPath, tmpDbPath);
+    } catch (err) {
+      console.warn('[Database] Could not copy initial academy.db to /tmp:', err);
+    }
+  }
+  DB_PATH = tmpDbPath;
+} else {
+  DB_PATH = path.resolve(process.cwd(), 'academy.db');
+}
+
 export const db = new DatabaseSync(DB_PATH);
+
+let dbInitialized = false;
+export function ensureDatabaseInitialized(): void {
+  if (dbInitialized) return;
+  initDatabase();
+  dbInitialized = true;
+}
 
 // Type-safe DB helper wrappers
 export function queryAll<T = any>(sql: string, ...params: any[]): T[] {
