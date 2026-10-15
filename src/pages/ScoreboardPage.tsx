@@ -145,3 +145,5 @@ export const ScoreboardPage: React.FC = () => {
     </div>
   );
 };
+
+export default ScoreboardPage;

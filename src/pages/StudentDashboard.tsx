@@ -259,3 +259,5 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     </div>
   );
 };
+
+export default StudentDashboard;

@@ -319,3 +319,5 @@ export const FeedbackPage: React.FC = () => {
     </div>
   );
 };
+
+export default FeedbackPage;

@@ -641,3 +641,5 @@ export const AdmissionsPage: React.FC = () => {
     </div>
   );
 };
+
+export default AdmissionsPage;

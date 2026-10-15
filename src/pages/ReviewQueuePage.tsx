@@ -231,3 +231,5 @@ export const ReviewQueuePage: React.FC = () => {
     </div>
   );
 };
+
+export default ReviewQueuePage;

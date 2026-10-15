@@ -343,3 +343,5 @@ export const BatchesPage: React.FC<BatchesPageProps> = ({ filterOnlyEnrolled = f
     </div>
   );
 };
+
+export default BatchesPage;

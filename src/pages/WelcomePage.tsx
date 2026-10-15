@@ -724,3 +724,5 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
     </div>
   );
 };
+
+export default WelcomePage;

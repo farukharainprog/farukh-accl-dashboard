@@ -1,0 +1,10 @@
+export { StudentDashboard, default as DefaultStudentDashboard } from './StudentDashboard';
+export { WelcomePage, default as DefaultWelcomePage } from './WelcomePage';
+export { ReviewQueuePage, default as DefaultReviewQueuePage } from './ReviewQueuePage';
+export { UserManagementPage, default as DefaultUserManagementPage } from './UserManagementPage';
+export { AdmissionsPage, default as DefaultAdmissionsPage } from './AdmissionsPage';
+export { BatchesPage, default as DefaultBatchesPage } from './BatchesPage';
+export { ScoreboardPage, default as DefaultScoreboardPage } from './ScoreboardPage';
+export { FeedbackPage, default as DefaultFeedbackPage } from './FeedbackPage';
+export { AttendanceHistoryPage, default as DefaultAttendanceHistoryPage } from './AttendanceHistoryPage';
+export { AdminSettingsPage, default as DefaultAdminSettingsPage } from './AdminSettingsPage';

@@ -1,8 +1,0 @@
-{
-  "name": "Farukh Businessman Wala ACCL Dashboard",
-  "description": "Official ACCL Dashboard for Rehan School Tuition Academy. Track student tasks, attendance with Asia/Karachi time, submissions, teacher reviews, and admissions.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}

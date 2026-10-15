@@ -154,3 +154,5 @@ export const AttendanceHistoryPage: React.FC = () => {
     </div>
   );
 };
+
+export default AttendanceHistoryPage;

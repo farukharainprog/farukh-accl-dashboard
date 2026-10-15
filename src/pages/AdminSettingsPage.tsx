@@ -308,3 +308,5 @@ export const AdminSettingsPage: React.FC = () => {
     </div>
   );
 };
+
+export default AdminSettingsPage;

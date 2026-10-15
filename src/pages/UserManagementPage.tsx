@@ -391,3 +391,5 @@ export const UserManagementPage: React.FC = () => {
     </div>
   );
 };
+
+export default UserManagementPage;
