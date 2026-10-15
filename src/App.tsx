@@ -1,19 +1,24 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { Header } from './components/Header';
-import { NavigationTabs, type NavTab } from './components/NavigationTabs';
-import { Footer } from './components/Footer';
-import { ProfileModal } from './components/ProfileModal';
-import { WelcomePage } from './pages/WelcomePage';
-import { StudentDashboard } from './pages/StudentDashboard';
-import { ReviewQueuePage } from './pages/ReviewQueuePage';
-import { UserManagementPage } from './pages/UserManagementPage';
-import { AdmissionsPage } from './pages/AdmissionsPage';
-import { BatchesPage } from './pages/BatchesPage';
-import { ScoreboardPage } from './pages/ScoreboardPage';
-import { FeedbackPage } from './pages/FeedbackPage';
-import { AttendanceHistoryPage } from './pages/AttendanceHistoryPage';
-import { AdminSettingsPage } from './pages/AdminSettingsPage';
+import {
+  Header,
+  NavigationTabs,
+  type NavTab,
+  Footer,
+  ProfileModal,
+} from './components';
+import {
+  WelcomePage,
+  StudentDashboard,
+  ReviewQueuePage,
+  UserManagementPage,
+  AdmissionsPage,
+  BatchesPage,
+  ScoreboardPage,
+  FeedbackPage,
+  AttendanceHistoryPage,
+  AdminSettingsPage,
+} from './pages';
 import {
   Clock,
   MessageCircle,
