@@ -305,6 +305,93 @@ export const AdminSettingsPage: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* Database & Curriculum Tasks Management Card */}
+      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs max-w-3xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Layers className="w-5 h-5 text-indigo-600" />
+            <h3 className="text-base font-bold text-slate-900">Database & Curriculum Tasks Tools</h3>
+          </div>
+          <span className="px-3 py-1 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-full border border-indigo-200">
+            {stats?.totalTasks ?? 221} Tasks Loaded
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          Manage your persistent curriculum tasks, reload default Rehan School Foundation items (Day 1 - 180), or export/import full JSON database backups for cross-device migration.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          {/* Reload Default Tasks */}
+          <button
+            type="button"
+            onClick={async () => {
+              if (confirm('Are you sure you want to re-load all default foundation tasks? Any default tasks will be refreshed.')) {
+                try {
+                  const res = await api.loadDefaultTasks();
+                  alert(res.message);
+                  const updated = await api.getAdminStats();
+                  setStats(updated);
+                } catch (e: any) {
+                  alert(e.message || 'Failed to reload tasks');
+                }
+              }
+            }}
+            className="flex items-center justify-center gap-2 p-3 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold transition-all"
+          >
+            <span>🔄 Reload 220+ Default Curriculum Tasks</span>
+          </button>
+
+          {/* Export JSON Backup */}
+          <button
+            type="button"
+            onClick={() => {
+              const json = api.exportDatabase();
+              const blob = new Blob([json], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `accl_database_backup_${new Date().toISOString().slice(0, 10)}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="flex items-center justify-center gap-2 p-3 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 rounded-xl text-xs font-bold transition-all"
+          >
+            <span>💾 Export Full Database (JSON Backup)</span>
+          </button>
+        </div>
+
+        {/* Import JSON Backup */}
+        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-4">
+          <span className="text-xs text-slate-500">Restore from JSON backup file:</span>
+          <label className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 cursor-pointer">
+            <span>Choose Backup File...</span>
+            <input
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                  const content = evt.target?.result as string;
+                  if (content) {
+                    const ok = api.importDatabase(content);
+                    if (ok) {
+                      alert('Database restored successfully from backup!');
+                      window.location.reload();
+                    } else {
+                      alert('Failed to restore database. Invalid backup file format.');
+                    }
+                  }
+                };
+                reader.readAsText(file);
+              }}
+            />
+          </label>
+        </div>
+      </div>
     </div>
   );
 };

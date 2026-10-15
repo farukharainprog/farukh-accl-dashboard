@@ -6,3 +6,4 @@ export { SubmitTaskModal } from './SubmitTaskModal';
 export { ReviewModal } from './ReviewModal';
 export { Footer } from './Footer';
 export { ProfileModal } from './ProfileModal';
+export { AddTaskModal } from './AddTaskModal';

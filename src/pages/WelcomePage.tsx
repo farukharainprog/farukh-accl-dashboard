@@ -58,10 +58,10 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const [teachError, setTeachError] = useState('');
 
   // Owner Setup state
-  const [ownerName, setOwnerName] = useState('');
-  const [ownerEmail, setOwnerEmail] = useState('');
-  const [ownerPassword, setOwnerPassword] = useState('');
-  const [ownerWhatsapp, setOwnerWhatsapp] = useState('');
+  const [ownerName, setOwnerName] = useState('FARUKH BUSINESSMAN WALA');
+  const [ownerEmail, setOwnerEmail] = useState('farukharain962@gmail.com');
+  const [ownerPassword, setOwnerPassword] = useState('@Farukh2199');
+  const [ownerWhatsapp, setOwnerWhatsapp] = useState('0345 3967083');
   const [ownerKey, setOwnerKey] = useState('');
   const [ownerLoading, setOwnerLoading] = useState(false);
   const [ownerError, setOwnerError] = useState('');
@@ -336,10 +336,24 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                   />
                 </div>
 
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <span className="text-slate-400">Owner Access:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginEmail('farukharain962@gmail.com');
+                      setLoginPassword('@Farukh2199');
+                    }}
+                    className="text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer"
+                  >
+                    Auto-Fill Owner Credentials
+                  </button>
+                </div>
+
                 <button
                   type="submit"
                   disabled={loginLoading}
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50"
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {loginLoading ? 'Signing in...' : 'Sign In'}
                 </button>
