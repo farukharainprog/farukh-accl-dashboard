@@ -176,6 +176,26 @@ export const AdmissionsPage: React.FC = () => {
     }
   };
 
+  const handleDeleteStudent = async (id: string, studentName: string) => {
+    try {
+      const res = await api.deleteStudentAdmission(id);
+      setActionNotice({ type: 'success', text: res.message || `Deleted admission record for ${studentName}` });
+      await fetchAdmissionsData();
+    } catch (err: any) {
+      setActionNotice({ type: 'error', text: err.message || 'Delete failed' });
+    }
+  };
+
+  const handleCleanAll = async () => {
+    try {
+      const res = await api.cleanAllStudentAdmissions();
+      setActionNotice({ type: 'success', text: res.message || 'All student admission records have been cleared.' });
+      await fetchAdmissionsData();
+    } catch (err: any) {
+      setActionNotice({ type: 'error', text: err.message || 'Clean failed' });
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Action Notification Banner */}
@@ -527,9 +547,25 @@ export const AdmissionsPage: React.FC = () => {
       {/* VIEW 3: STUDENT ADMISSION REQUESTS TABLE */}
       {activeTab === 'student_requests' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
-          <h3 className="text-sm font-bold text-slate-900 mb-3">
-            Registered Student Admissions ({studentAdmissions.length})
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Registered Student Admissions ({studentAdmissions.length})
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Review each application. Only approved students can sign in to view social media tasks.
+              </p>
+            </div>
+
+            {isAdmin && studentAdmissions.length > 0 && (
+              <button
+                onClick={handleCleanAll}
+                className="px-3 py-1.5 text-red-600 hover:bg-red-50 border border-red-200 hover:border-red-400 rounded-lg text-xs font-bold transition-all self-start sm:self-auto cursor-pointer"
+              >
+                Clear All Admissions
+              </button>
+            )}
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
@@ -584,22 +620,33 @@ export const AdmissionsPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-3 text-right">
-                        {sa.status === 'pending' && isAdmin && (
-                          <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {sa.status === 'pending' && isAdmin && (
+                            <>
+                              <button
+                                onClick={() => handleApproveStudent(sa.id)}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold cursor-pointer"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectStudent(sa.id)}
+                                className="px-2 py-1 border border-red-200 text-red-600 hover:bg-red-50 rounded text-[11px] cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {isAdmin && (
                             <button
-                              onClick={() => handleApproveStudent(sa.id)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-bold"
+                              onClick={() => handleDeleteStudent(sa.id, sa.full_name)}
+                              className="px-2 py-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded text-[11px] cursor-pointer"
+                              title="Delete admission"
                             >
-                              Approve
+                              Delete
                             </button>
-                            <button
-                              onClick={() => handleRejectStudent(sa.id)}
-                              className="px-2 py-1 border border-red-200 text-red-600 hover:bg-red-50 rounded text-[11px]"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

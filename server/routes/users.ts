@@ -142,6 +142,24 @@ usersRouter.put('/:id', authMiddleware, requireRole('owner', 'admin'), (req: Aut
   res.json({ message: 'User updated successfully.' });
 });
 
+// Owner: Delete user
+usersRouter.delete('/:id', authMiddleware, requireRole('owner'), (req: AuthRequest, res: Response) => {
+  const target = queryOne<User>('SELECT * FROM users WHERE id = ?', req.params.id);
+  if (!target) {
+    res.status(404).json({ error: 'User not found.' });
+    return;
+  }
+  if (target.role === 'owner') {
+    res.status(400).json({ error: 'Cannot delete Owner account.' });
+    return;
+  }
+  execute('DELETE FROM users WHERE id = ?', req.params.id);
+  execute('DELETE FROM student_admissions WHERE email = ?', target.email);
+  logAudit(req.user!.id, req.user!.full_name, req.user!.role, 'USER_DELETED', `Deleted user ${target.email} (${target.full_name})`);
+  res.json({ message: `User ${target.full_name} has been deleted.` });
+});
+
+
 // Owner/Admin: View Audit Logs
 usersRouter.get('/audit-logs', authMiddleware, requireRole('owner', 'admin'), (_req, res: Response) => {
   const logs = queryAll(`

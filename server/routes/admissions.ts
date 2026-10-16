@@ -201,6 +201,35 @@ admissionsRouter.post('/students/:id/reject', authMiddleware, requireRole('owner
   res.json({ message: 'Student admission rejected.' });
 });
 
+// Owner: Delete student admission permanently
+admissionsRouter.delete('/students/:id', authMiddleware, requireRole('owner', 'admin'), (req: AuthRequest, res: Response) => {
+  const admission = queryOne<StudentAdmission>('SELECT * FROM student_admissions WHERE id = ?', req.params.id);
+  if (!admission) {
+    res.status(404).json({ error: 'Admission request not found.' });
+    return;
+  }
+
+  // Delete admission
+  execute('DELETE FROM student_admissions WHERE id = ?', req.params.id);
+
+  // If associated user is a student (not owner or admin), remove user account
+  execute("DELETE FROM users WHERE email = ? AND role = 'student'", admission.email);
+
+  if (req.user) {
+    logAudit(req.user.id, req.user.full_name, req.user.role, 'STUDENT_ADMISSION_DELETED', `Deleted admission for ${admission.full_name} (${admission.email})`);
+  }
+
+  res.json({ message: `Admission for ${admission.full_name} has been permanently deleted.` });
+});
+
+// Owner: Clean all student admissions
+admissionsRouter.post('/students/clean-all', authMiddleware, requireRole('owner'), (_req: AuthRequest, res: Response) => {
+  execute('DELETE FROM student_admissions');
+  execute("DELETE FROM users WHERE role = 'student'");
+  res.json({ message: 'All student admission records have been cleaned.' });
+});
+
+
 // Owner: List teacher applications
 admissionsRouter.get('/teachers', authMiddleware, requireRole('owner', 'admin'), (_req, res: Response) => {
   const applications = queryAll<TeacherApplication>(`

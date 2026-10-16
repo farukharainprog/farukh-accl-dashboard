@@ -166,7 +166,7 @@ authRouter.post('/register', (req, res: Response) => {
 
     res.status(201).json({
       message: requireApproval
-        ? 'Registration submitted! Your application is currently Pending Owner Review and Activation. The Academy Owner will review and activate your account.'
+        ? 'Your admission application has been submitted successfully to FARUKH BUSINESSMAN WALA for review. Please wait patiently up to 12 hours for the Owner\'s approval. Once approved, you will be able to sign in.'
         : 'Registration successful! Welcome to the Academy.',
       token,
       user: {
@@ -227,7 +227,7 @@ authRouter.post('/login', (req, res: Response) => {
 
     if (user.status === 'pending') {
       res.status(403).json({
-        error: 'Your admission application is currently under review by the Academy Owner. Once the Owner approves and activates your account, you will be able to sign in.',
+        error: 'Your admission application is currently under review by FARUKH BUSINESSMAN WALA. Please allow up to 12 hours for the Owner to review and approve your application. Once approved, you will be able to sign in and access your student dashboard.',
         isPending: true,
       });
       return;

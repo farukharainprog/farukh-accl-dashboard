@@ -362,7 +362,7 @@ export const storageService = {
 
     return {
       message: requireApproval
-        ? 'Registration submitted! Your application is currently Pending Owner Review and Activation. The Academy Owner will review and activate your account.'
+        ? 'Your admission application has been submitted successfully to FARUKH BUSINESSMAN WALA for review. Please wait patiently up to 12 hours for the Owner\'s approval. Once approved, you will be able to sign in.'
         : 'Registration successful! Welcome to the Academy.',
       token,
       user: userProfile,
@@ -426,7 +426,7 @@ export const storageService = {
     }
 
     if (user.status === 'pending') {
-      const err = new Error('Your admission application is currently under review by the Academy Owner. Once the Owner approves and activates your account, you will be able to sign in.') as any;
+      const err = new Error('Your admission application is currently under review by FARUKH BUSINESSMAN WALA. Please allow up to 12 hours for the Owner to review and approve your application. Once approved, you will be able to sign in and access your student dashboard.') as any;
       err.status = 403;
       err.data = { error: err.message, isPending: true };
       throw err;
@@ -1619,5 +1619,28 @@ export const storageService = {
     const clientUsers = getStore<any[]>(KEYS.USERS, []);
     return { clientAdmissions, clientUsers };
   },
+
+  deleteAdmissionLocally(id: string): { message: string } {
+    const admissions = getStore<any[]>(KEYS.ADMISSIONS, []);
+    const adm = admissions.find((a) => a.id === id);
+    const filtered = admissions.filter((a) => a.id !== id);
+    setStore(KEYS.ADMISSIONS, filtered);
+
+    if (adm?.email) {
+      const users = getStore<any[]>(KEYS.USERS, []);
+      const cleanUsers = users.filter((u) => u.email !== adm.email || u.role === 'owner');
+      setStore(KEYS.USERS, cleanUsers);
+    }
+    return { message: 'Admission deleted successfully.' };
+  },
+
+  cleanAllAdmissionsLocally(): { message: string } {
+    setStore(KEYS.ADMISSIONS, []);
+    const users = getStore<any[]>(KEYS.USERS, []);
+    const onlyOwner = users.filter((u) => u.role === 'owner');
+    setStore(KEYS.USERS, onlyOwner);
+    return { message: 'All student admissions cleaned.' };
+  },
 };
+
 

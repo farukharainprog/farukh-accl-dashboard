@@ -44,16 +44,9 @@ syncRouter.post('/', (req, res: Response) => {
             adm.assigned_teacher_id || null,
             adm.registered_by_id || null,
             adm.notes || null,
-            adm.status || 'pending',
+            adm.status === 'approved' ? 'approved' : 'pending',
             adm.created_at || now,
             adm.reviewed_at || null
-          );
-        } else if (adm.status === 'approved' && existing.status !== 'approved') {
-          execute(
-            'UPDATE student_admissions SET status = ?, reviewed_at = ? WHERE id = ?',
-            'approved',
-            adm.reviewed_at || now,
-            existing.id
           );
         }
       }

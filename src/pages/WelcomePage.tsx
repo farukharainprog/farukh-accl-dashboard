@@ -77,7 +77,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
       if (res.isPending || res.user?.status === 'pending') {
         // Do NOT log in pending students
         setPendingNotice(true);
-        setLoginError('Your admission application is currently under review by the Academy Owner. Once the Owner approves and activates your account, you will be able to sign in.');
+        setLoginError('Your admission application is currently under review by FARUKH BUSINESSMAN WALA. Please allow up to 12 hours for the Owner to review and approve your application. Once approved, you will be able to sign in and access your student dashboard.');
       } else if (res.user?.status === 'rejected' || res.user?.status === 'suspended') {
         setLoginError('Your admission application was not approved or is suspended. Please contact the academy on WhatsApp.');
       } else {
@@ -110,9 +110,8 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
         learning_level: regLevel,
       });
 
-      // Show prominent success notification and clear inputs.
-      // Do NOT log them in automatically - they must await Owner approval.
-      setRegSuccess(res.message || 'Student admission submitted successfully! Your application has been sent to the Academy Owner for review and activation. You will be able to sign in once the Owner approves your account.');
+      // Show prominent success notification stating review by FARUKH BUSINESSMAN WALA and 12 hours wait
+      setRegSuccess(res.message || 'Your admission application has been submitted successfully to FARUKH BUSINESSMAN WALA for review. Please wait patiently up to 12 hours for the Owner\'s approval. Once approved, you will be able to sign in.');
       setRegName('');
       setRegFatherName('');
       setRegEmail('');
@@ -260,13 +259,13 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
               )}
 
               {pendingNotice && (
-                <div className="p-4 mb-4 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900">
-                  <h4 className="font-bold flex items-center gap-1.5 text-amber-800 mb-1">
+                <div className="p-4 mb-4 rounded-xl bg-amber-50 border-2 border-amber-300 text-xs text-amber-950">
+                  <h4 className="font-bold flex items-center gap-1.5 text-amber-900 mb-1">
                     <Clock className="w-4 h-4 text-amber-600" />
-                    Account Pending Activation
+                    Admission Application Under Review
                   </h4>
-                  <p>
-                    Your registration has been submitted! The Academy Owner reviews and activates accounts before access is unlocked. You may contact the Owner on WhatsApp at <strong>{primaryPhone}</strong> for priority activation.
+                  <p className="leading-relaxed">
+                    Your admission application is currently under review by <strong>FARUKH BUSINESSMAN WALA</strong>. Please allow up to <strong>12 hours</strong> for the Owner to review and approve your application. Once approved, you will be able to sign in and access your student dashboard and daily tasks.
                   </p>
                 </div>
               )}
@@ -333,18 +332,21 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
               </div>
 
               {regSuccess && (
-                <div className="p-4 mb-6 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs">
-                  <div className="flex items-center gap-2 font-bold mb-1">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    <span>Admission Request Submitted Successfully!</span>
+                <div className="p-5 mb-6 rounded-2xl bg-emerald-50 border-2 border-emerald-400 text-emerald-950 text-xs shadow-md">
+                  <div className="flex items-center gap-2 font-black text-sm text-emerald-900 mb-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span>Admission Application Submitted Successfully!</span>
                   </div>
-                  <p className="mt-1 text-emerald-800 leading-relaxed">
-                    Your request has been placed in the Owner's review queue. As soon as the Owner approves your admission, you can sign in with your email and password.
+                  <p className="mt-1 text-emerald-900 font-medium leading-relaxed">
+                    Your admission application has been submitted to <strong>FARUKH BUSINESSMAN WALA</strong> for review. Please wait patiently up to <strong>12 hours</strong> for the Owner to review and approve your application.
                   </p>
-                  <div className="mt-3">
+                  <p className="mt-2 text-emerald-800 text-[11px]">
+                    Once approved by the Owner, you will be able to sign in with your email and password to access your daily tasks and social media assignments.
+                  </p>
+                  <div className="mt-4">
                     <button
                       onClick={() => setActiveTab('login')}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors cursor-pointer"
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors cursor-pointer text-xs shadow-xs"
                     >
                       Go to Sign In
                     </button>

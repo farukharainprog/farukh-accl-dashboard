@@ -383,6 +383,33 @@ export const api = {
     );
   },
 
+  deleteStudentAdmission: async (id: string): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest(`/admissions/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        try {
+          storageService.deleteAdmissionLocally?.(id);
+        } catch {}
+        return res;
+      },
+      () => storageService.deleteAdmissionLocally(id)
+    );
+  },
+
+  cleanAllStudentAdmissions: async (): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest('/admissions/students/clean-all', { method: 'POST' });
+        try {
+          storageService.cleanAllAdmissionsLocally?.();
+        } catch {}
+        return res;
+      },
+      () => storageService.cleanAllAdmissionsLocally()
+    );
+  },
+
+
   getTeacherApplications: async (): Promise<any> => {
     return syncRequest(
       () => serverRequest('/admissions/teachers'),
