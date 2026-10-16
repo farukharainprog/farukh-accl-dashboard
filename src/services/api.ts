@@ -124,7 +124,10 @@ export const api = {
           method: 'POST',
           body: JSON.stringify(data),
         });
-        if (res.token) setStoredToken(res.token);
+        if (res.token && !res.requiresActivation) setStoredToken(res.token);
+        try {
+          await storageService.register(data);
+        } catch {}
         return res;
       },
       () => storageService.register(data)
@@ -139,6 +142,9 @@ export const api = {
           body: JSON.stringify(data),
         });
         if (res.token) setStoredToken(res.token);
+        if (res.user) {
+          storageService.saveUserLocally(res.user, data.password);
+        }
         return res;
       },
       () => storageService.login(data)
@@ -330,21 +336,49 @@ export const api = {
 
   getStudentAdmissions: async (): Promise<any> => {
     return syncRequest(
-      () => serverRequest('/admissions/students'),
+      async () => {
+        const res = await serverRequest<{ admissions: any[] }>('/admissions/students');
+        if (res?.admissions) {
+          storageService.mergeAdmissions(res.admissions);
+        }
+        const local = await storageService.getStudentAdmissions();
+        const serverList = res?.admissions || [];
+        const map = new Map(serverList.map((a: any) => [a.id, a]));
+        for (const la of (local?.admissions || [])) {
+          if (!map.has(la.id)) {
+            map.set(la.id, la);
+          } else if (la.status === 'approved' && map.get(la.id).status !== 'approved') {
+            map.set(la.id, { ...map.get(la.id), status: 'approved' });
+          }
+        }
+        return { admissions: Array.from(map.values()) };
+      },
       () => storageService.getStudentAdmissions()
     );
   },
 
   approveStudentAdmission: async (id: string): Promise<any> => {
     return syncRequest(
-      () => serverRequest(`/admissions/students/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
+      async () => {
+        const res = await serverRequest(`/admissions/students/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+        try {
+          await storageService.approveStudentAdmission(id);
+        } catch {}
+        return res;
+      },
       () => storageService.approveStudentAdmission(id)
     );
   },
 
   rejectStudentAdmission: async (id: string): Promise<any> => {
     return syncRequest(
-      () => serverRequest(`/admissions/students/${encodeURIComponent(id)}/reject`, { method: 'POST' }),
+      async () => {
+        const res = await serverRequest(`/admissions/students/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+        try {
+          await storageService.rejectStudentAdmission(id);
+        } catch {}
+        return res;
+      },
       () => storageService.rejectStudentAdmission(id)
     );
   },
@@ -382,9 +416,41 @@ export const api = {
 
     const queryStr = qs.toString() ? `?${qs.toString()}` : '';
     return syncRequest(
-      () => serverRequest(`/users${queryStr}`),
+      async () => {
+        const res = await serverRequest<{ users: any[] }>(`/users${queryStr}`);
+        if (res?.users) {
+          storageService.mergeUsers(res.users);
+        }
+        const local = await storageService.getUsers(params);
+        const serverList = res?.users || [];
+        const map = new Map(serverList.map((u: any) => [u.id, u]));
+        for (const lu of (local?.users || [])) {
+          if (!map.has(lu.id)) {
+            map.set(lu.id, lu);
+          } else if (lu.status === 'active' && map.get(lu.id).status !== 'active') {
+            map.set(lu.id, { ...map.get(lu.id), status: 'active' });
+          }
+        }
+        return { users: Array.from(map.values()) };
+      },
       () => storageService.getUsers(params)
     );
+  },
+
+  syncWithServer: async (): Promise<any> => {
+    try {
+      const payload = storageService.getAllForSync();
+      const res = await serverRequest<{ success: boolean; admissions: any[]; users: any[] }>('/sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (res?.admissions) storageService.mergeAdmissions(res.admissions);
+      if (res?.users) storageService.mergeUsers(res.users);
+      return res;
+    } catch (err) {
+      console.warn('Sync with server skipped:', err);
+      return null;
+    }
   },
 
   getTeachersList: async (): Promise<any> => {

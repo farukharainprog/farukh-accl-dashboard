@@ -1540,4 +1540,84 @@ export const storageService = {
       return false;
     }
   },
+
+  // Permanent Cross-Device Synchronization Helpers
+  mergeAdmissions(serverAdmissions: any[]): void {
+    if (!Array.isArray(serverAdmissions)) return;
+    const local = getStore<any[]>(KEYS.ADMISSIONS, []);
+    const localMap = new Map(local.map((a) => [a.email?.toLowerCase().trim() || a.id, a]));
+
+    for (const sa of serverAdmissions) {
+      const key = sa.email?.toLowerCase().trim() || sa.id;
+      const existing = localMap.get(key);
+      if (!existing) {
+        localMap.set(key, sa);
+      } else {
+        // Favor approved status or newer status
+        localMap.set(key, {
+          ...existing,
+          ...sa,
+          status: existing.status === 'approved' || sa.status === 'approved' ? 'approved' : sa.status,
+        });
+      }
+    }
+    setStore(KEYS.ADMISSIONS, Array.from(localMap.values()));
+  },
+
+  mergeUsers(serverUsers: any[]): void {
+    if (!Array.isArray(serverUsers)) return;
+    const local = getStore<any[]>(KEYS.USERS, []);
+    const localMap = new Map(local.map((u) => [u.email?.toLowerCase().trim() || u.id, u]));
+
+    for (const su of serverUsers) {
+      const key = su.email?.toLowerCase().trim() || su.id;
+      const existing = localMap.get(key);
+      if (!existing) {
+        localMap.set(key, su);
+      } else {
+        localMap.set(key, {
+          ...existing,
+          ...su,
+          status: existing.status === 'active' || su.status === 'active' ? 'active' : su.status,
+        });
+      }
+    }
+    setStore(KEYS.USERS, Array.from(localMap.values()));
+  },
+
+  saveUserLocally(userProfile: UserProfile, password?: string): void {
+    const local = getStore<any[]>(KEYS.USERS, []);
+    const cleanEmail = userProfile.email?.toLowerCase().trim();
+    const idx = local.findIndex((u) => u.email?.toLowerCase().trim() === cleanEmail);
+
+    const record = {
+      id: userProfile.id,
+      email: cleanEmail,
+      full_name: userProfile.full_name,
+      father_name: userProfile.father_name,
+      whatsapp: userProfile.whatsapp,
+      role: userProfile.role,
+      status: userProfile.status,
+      learning_level: userProfile.learning_level,
+      assigned_teacher_id: userProfile.assigned_teacher_id,
+      can_approve: Boolean(userProfile.can_approve),
+      can_admit: Boolean(userProfile.can_admit),
+      created_at: userProfile.created_at || new Date().toISOString(),
+      ...(password ? { password } : {}),
+    };
+
+    if (idx >= 0) {
+      local[idx] = { ...local[idx], ...record };
+    } else {
+      local.push(record);
+    }
+    setStore(KEYS.USERS, local);
+  },
+
+  getAllForSync(): { clientAdmissions: any[]; clientUsers: any[] } {
+    const clientAdmissions = getStore<any[]>(KEYS.ADMISSIONS, []);
+    const clientUsers = getStore<any[]>(KEYS.USERS, []);
+    return { clientAdmissions, clientUsers };
+  },
 };
+

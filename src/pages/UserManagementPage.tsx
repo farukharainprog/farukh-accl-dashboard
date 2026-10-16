@@ -70,6 +70,7 @@ export const UserManagementPage: React.FC = () => {
   const fetchUsers = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
+      await api.syncWithServer().catch(() => {});
       const res = await api.getUsers({
         role: roleFilter || undefined,
         status: statusFilter || undefined,

@@ -11,6 +11,7 @@ import { batchesRouter } from './routes/batches.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { scoreboardRouter } from './routes/scoreboard.js';
 import { settingsRouter } from './routes/settings.js';
+import { syncRouter } from './routes/sync.js';
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ apiRouter.use('/batches', batchesRouter);
 apiRouter.use('/feedback', feedbackRouter);
 apiRouter.use('/scoreboard', scoreboardRouter);
 apiRouter.use('/settings', settingsRouter);
+apiRouter.use('/sync', syncRouter);
 
 apiRouter.get('/health', (_req, res) => {
   res.json({

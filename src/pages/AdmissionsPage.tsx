@@ -51,6 +51,7 @@ export const AdmissionsPage: React.FC = () => {
   const fetchAdmissionsData = async (silent = false) => {
     if (!silent) setLoadingData(true);
     try {
+      await api.syncWithServer().catch(() => {});
       if (isAdmin) {
         const [sRes, tRes] = await Promise.all([
           api.getStudentAdmissions(),
