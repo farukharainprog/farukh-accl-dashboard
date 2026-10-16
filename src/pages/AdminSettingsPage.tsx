@@ -22,7 +22,7 @@ export const AdminSettingsPage: React.FC = () => {
   // Form states
   const [title, setTitle] = useState(settings?.dashboard_title || 'Farukh Businessman Wala ACCL Dashboard');
   const [academyName, setAcademyName] = useState(settings?.academy_name || 'Rehan School Tuition Academy');
-  const [footerCredit, setFooterCredit] = useState(settings?.footer_credit || 'Created by FARUKH BUSINESSMAN WALA');
+  const [footerCredit, setFooterCredit] = useState(settings?.footer_credit || 'Rehan School Tuition Academy');
   const [wa1, setWa1] = useState(settings?.whatsapp_primary || '0345 3967083');
   const [wa2, setWa2] = useState(settings?.whatsapp_second || '03421336388');
   const [wa1Link, setWa1Link] = useState(settings?.whatsapp_primary_link || 'https://wa.me/923453967083');

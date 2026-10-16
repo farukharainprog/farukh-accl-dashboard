@@ -205,11 +205,11 @@ export const BatchesPage: React.FC<BatchesPageProps> = ({ filterOnlyEnrolled = f
                   </span>
                 ) : (
                   <button
-                    disabled={batch.enrolled_count >= batch.max_students}
+                    disabled={(batch.enrolled_count ?? 0) >= batch.max_students}
                     onClick={() => handleEnroll(batch.id)}
                     className="px-4 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-50"
                   >
-                    {batch.enrolled_count >= batch.max_students ? 'Batch Full' : 'Enroll in Batch'}
+                    {(batch.enrolled_count ?? 0) >= batch.max_students ? 'Batch Full' : 'Enroll in Batch'}
                   </button>
                 )}
               </div>

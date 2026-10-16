@@ -31,7 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshSettings = useCallback(async () => {
     try {
       const res = await api.getSettings();
-      setSettings(res);
+      setSettings((res as any)?.settings || res);
     } catch (err) {
       console.error('Failed to load settings:', err);
     }
@@ -40,7 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkOwner = useCallback(async () => {
     try {
       const res = await api.checkOwnerExists();
-      setHasOwner(res.hasOwner);
+      setHasOwner(Boolean(res.hasOwner ?? (res as any).exists));
     } catch {
       setHasOwner(true);
     }

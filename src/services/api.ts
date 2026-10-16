@@ -14,73 +14,476 @@ export const getStoredToken = storageService.getStoredToken;
 export const setStoredToken = storageService.setStoredToken;
 export const removeStoredToken = storageService.removeStoredToken;
 
+const API_BASE = '/api';
+
+/**
+ * Universal Server API request helper.
+ * Attaches JWT token from client storage, handles JSON parsing, and handles errors.
+ */
+async function serverRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const token = getStoredToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      removeStoredToken();
+    }
+    const errMessage = data?.error || data?.message || `Request failed with status ${res.status}`;
+    const err = new Error(errMessage) as any;
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+
+  return data as T;
+}
+
+/**
+ * Executes a server request first for real-time synchronization across laptops over the internet.
+ * If a network error (e.g. offline, connection failure) occurs, gracefully falls back to local storage.
+ */
+async function syncRequest<T>(
+  serverFn: () => Promise<T>,
+  fallbackFn: () => Promise<T>
+): Promise<T> {
+  try {
+    return await serverFn();
+  } catch (err: any) {
+    // If it's an application error (e.g. 400 Bad Request, 401 Invalid Credentials, 403 Forbidden, 404), throw it
+    if (err?.status && err.status >= 400 && err.status < 500) {
+      throw err;
+    }
+    // If network connection failed or server unreachable, fallback to storageService
+    console.warn('Network request failed, falling back to local store:', err?.message || err);
+    return await fallbackFn();
+  }
+}
+
 export const api = {
   // Auth
-  checkOwnerExists: () => storageService.checkOwnerExists(),
-  firstOwnerSetup: (data: any) => storageService.firstOwnerSetup(data),
-  register: (data: any) => storageService.register(data),
-  login: (data: any) => storageService.login(data),
-  getMe: () => storageService.getMe(),
-  updateProfile: (data: any) => storageService.updateProfile(data),
+  checkOwnerExists: async (): Promise<{ exists: boolean; hasOwner: boolean }> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<{ exists: boolean }>('/auth/check-owner-exists');
+        return { exists: Boolean(res.exists), hasOwner: Boolean(res.exists) };
+      },
+      async () => {
+        const res = await storageService.checkOwnerExists();
+        return { exists: Boolean(res.hasOwner), hasOwner: Boolean(res.hasOwner) };
+      }
+    );
+  },
+
+  firstOwnerSetup: async (data: any): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<any>('/auth/first-owner-setup', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        if (res.token) setStoredToken(res.token);
+        return res;
+      },
+      () => storageService.firstOwnerSetup(data)
+    );
+  },
+
+  register: async (data: any): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<any>('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        if (res.token) setStoredToken(res.token);
+        return res;
+      },
+      () => storageService.register(data)
+    );
+  },
+
+  login: async (data: any): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<any>('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        if (res.token) setStoredToken(res.token);
+        return res;
+      },
+      () => storageService.login(data)
+    );
+  },
+
+  getMe: async (): Promise<{ user: UserProfile }> => {
+    return syncRequest(
+      () => serverRequest<{ user: UserProfile }>('/auth/me'),
+      () => storageService.getMe()
+    );
+  },
+
+  updateProfile: async (data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.updateProfile(data)
+    );
+  },
 
   // Tasks
-  getTasks: (params?: { book?: string; day?: number; category?: string; search?: string; status?: string; student_id?: string }) =>
-    storageService.getTasks(params),
-  loadDefaultTasks: () => storageService.loadDefaultTasks(),
-  getTaskStats: () => storageService.getTaskStats(),
-  createTask: (data: any) => storageService.createTask(data),
-  updateTask: (id: string, data: any) => storageService.updateTask(id, data),
-  archiveTask: (id: string) => storageService.archiveTask(id),
+  getTasks: async (params?: { book?: string; day?: number; category?: string; search?: string; status?: string; student_id?: string }): Promise<{ tasks: TaskItem[] }> => {
+    const qs = new URLSearchParams();
+    if (params?.book) qs.set('book', params.book);
+    if (params?.day !== undefined) qs.set('day', String(params.day));
+    if (params?.category) qs.set('category', params.category);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.student_id) qs.set('student_id', params.student_id);
+
+    const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+
+    return syncRequest(
+      () => serverRequest<{ tasks: TaskItem[] }>(`/tasks${queryStr}`),
+      () => storageService.getTasks(params)
+    );
+  },
+
+  loadDefaultTasks: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/tasks/load-default-180', { method: 'POST' }),
+      () => storageService.loadDefaultTasks()
+    );
+  },
+
+  getTaskStats: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/tasks/meta/stats'),
+      () => storageService.getTaskStats()
+    );
+  },
+
+  createTask: async (data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/tasks', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.createTask(data)
+    );
+  },
+
+  updateTask: async (id: string, data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/tasks/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.updateTask(id, data)
+    );
+  },
+
+  archiveTask: async (id: string): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      () => storageService.archiveTask(id)
+    );
+  },
 
   // Submissions
-  getSummaryMe: (book?: string) => storageService.getSummaryMe(book),
-  submitTask: (data: any) => storageService.submitTask(data),
-  getReviewQueue: (params?: { status?: string; book?: string; search?: string; student_id?: string }) =>
-    storageService.getReviewQueue(params),
-  reviewSubmission: (id: string, data: { decision: string; feedback?: string }) =>
-    storageService.reviewSubmission(id, data),
-  getTaskHistory: (taskId: string, studentId?: string) => storageService.getTaskHistory(taskId, studentId),
+  getSummaryMe: async (book: string = 'Book 1'): Promise<SubmissionSummary> => {
+    return syncRequest(
+      () => serverRequest<SubmissionSummary>(`/submissions/summary/me?book=${encodeURIComponent(book)}`),
+      () => storageService.getSummaryMe(book)
+    );
+  },
+
+  submitTask: async (data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/submissions', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.submitTask(data)
+    );
+  },
+
+  getReviewQueue: async (params?: { status?: string; book?: string; search?: string; student_id?: string }): Promise<any> => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.book) qs.set('book', params.book);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.student_id) qs.set('student_id', params.student_id);
+
+    const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+
+    return syncRequest(
+      () => serverRequest(`/submissions/queue${queryStr}`),
+      () => storageService.getReviewQueue(params)
+    );
+  },
+
+  reviewSubmission: async (id: string, data: { decision: string; feedback?: string }): Promise<any> => {
+    // Normalize decision string if 'approve' was passed instead of 'approved'
+    const normalizedDecision = data.decision === 'approve' ? 'approved' : data.decision;
+    return syncRequest(
+      () => serverRequest(`/submissions/${encodeURIComponent(id)}/review`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...data,
+          decision: normalizedDecision,
+        }),
+      }),
+      () => storageService.reviewSubmission(id, data)
+    );
+  },
+
+  getTaskHistory: async (taskId: string, studentId?: string): Promise<any> => {
+    const qs = studentId ? `?studentId=${encodeURIComponent(studentId)}` : '';
+    return syncRequest(
+      () => serverRequest(`/submissions/history/${encodeURIComponent(taskId)}${qs}`),
+      () => storageService.getTaskHistory(taskId, studentId)
+    );
+  },
 
   // Attendance
-  getAttendanceStatus: () => storageService.getAttendanceStatus(),
-  checkIn: () => storageService.checkIn(),
-  checkOut: () => storageService.checkOut(),
-  getAttendanceHistory: (studentId?: string) => storageService.getAttendanceHistory(studentId),
+  getAttendanceStatus: async (): Promise<AttendanceStatus> => {
+    return syncRequest(
+      () => serverRequest<AttendanceStatus>('/attendance/status'),
+      () => storageService.getAttendanceStatus()
+    );
+  },
+
+  checkIn: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/attendance/check-in', { method: 'POST' }),
+      () => storageService.checkIn()
+    );
+  },
+
+  checkOut: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/attendance/check-out', { method: 'POST' }),
+      () => storageService.checkOut()
+    );
+  },
+
+  getAttendanceHistory: async (studentId?: string): Promise<any> => {
+    const qs = studentId ? `?student_id=${encodeURIComponent(studentId)}` : '';
+    return syncRequest(
+      () => serverRequest(`/attendance/history${qs}`),
+      () => storageService.getAttendanceHistory(studentId)
+    );
+  },
 
   // Admissions
-  submitStudentAdmission: (data: any) => storageService.submitStudentAdmission(data),
-  submitTeacherApplication: (data: any) => storageService.submitTeacherApplication(data),
-  getStudentAdmissions: () => storageService.getStudentAdmissions(),
-  approveStudentAdmission: (id: string) => storageService.approveStudentAdmission(id),
-  rejectStudentAdmission: (id: string) => storageService.rejectStudentAdmission(id),
-  getTeacherApplications: () => storageService.getTeacherApplications(),
-  approveTeacherApplication: (id: string, data: any) => storageService.approveTeacherApplication(id, data),
-  rejectTeacherApplication: (id: string) => storageService.rejectTeacherApplication(id),
+  submitStudentAdmission: async (data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/admissions/student', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.submitStudentAdmission(data)
+    );
+  },
+
+  submitTeacherApplication: async (data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/admissions/teacher', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.submitTeacherApplication(data)
+    );
+  },
+
+  getStudentAdmissions: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/admissions/students'),
+      () => storageService.getStudentAdmissions()
+    );
+  },
+
+  approveStudentAdmission: async (id: string): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/admissions/students/${encodeURIComponent(id)}/approve`, { method: 'POST' }),
+      () => storageService.approveStudentAdmission(id)
+    );
+  },
+
+  rejectStudentAdmission: async (id: string): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/admissions/students/${encodeURIComponent(id)}/reject`, { method: 'POST' }),
+      () => storageService.rejectStudentAdmission(id)
+    );
+  },
+
+  getTeacherApplications: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/admissions/teachers'),
+      () => storageService.getTeacherApplications()
+    );
+  },
+
+  approveTeacherApplication: async (id: string, data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/admissions/teachers/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.approveTeacherApplication(id, data)
+    );
+  },
+
+  rejectTeacherApplication: async (id: string): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/admissions/teachers/${encodeURIComponent(id)}/reject`, { method: 'POST' }),
+      () => storageService.rejectTeacherApplication(id)
+    );
+  },
 
   // Users Management
-  getUsers: (params?: { role?: string; status?: string; search?: string }) => storageService.getUsers(params),
-  getTeachersList: () => storageService.getTeachersList(),
-  updateUser: (id: string, data: any) => storageService.updateUser(id, data),
-  getAuditLogs: () => storageService.getAuditLogs(),
+  getUsers: async (params?: { role?: string; status?: string; search?: string }): Promise<any> => {
+    const qs = new URLSearchParams();
+    if (params?.role) qs.set('role', params.role);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.search) qs.set('search', params.search);
+
+    const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+    return syncRequest(
+      () => serverRequest(`/users${queryStr}`),
+      () => storageService.getUsers(params)
+    );
+  },
+
+  getTeachersList: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/users/teachers'),
+      () => storageService.getTeachersList()
+    );
+  },
+
+  updateUser: async (id: string, data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/users/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.updateUser(id, data)
+    );
+  },
+
+  getAuditLogs: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/users/audit-logs'),
+      () => storageService.getAuditLogs()
+    );
+  },
 
   // Batches
-  getBatches: () => storageService.getBatches(),
-  enrollBatch: (id: string) => storageService.enrollBatch(id),
-  createBatch: (data: any) => storageService.createBatch(data),
+  getBatches: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/batches'),
+      () => storageService.getBatches()
+    );
+  },
+
+  enrollBatch: async (id: string): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/batches/${encodeURIComponent(id)}/enroll`, { method: 'POST' }),
+      () => storageService.enrollBatch(id)
+    );
+  },
+
+  createBatch: async (data: any): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/batches', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.createBatch(data)
+    );
+  },
 
   // Feedback
-  submitFeedback: (data: { category: string; rating: number; comment: string }) =>
-    storageService.submitFeedback(data),
-  getFeedbacks: () => storageService.getFeedbacks(),
-  respondFeedback: (id: string, response: string) => storageService.respondFeedback(id, response),
+  submitFeedback: async (data: { category: string; rating: number; comment: string }): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/feedback', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.submitFeedback(data)
+    );
+  },
+
+  getFeedbacks: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/feedback'),
+      () => storageService.getFeedbacks()
+    );
+  },
+
+  respondFeedback: async (id: string, response: string): Promise<any> => {
+    return syncRequest(
+      () => serverRequest(`/feedback/${encodeURIComponent(id)}/respond`, {
+        method: 'POST',
+        body: JSON.stringify({ response }),
+      }),
+      () => storageService.respondFeedback(id, response)
+    );
+  },
 
   // Scoreboard
-  getScoreboard: () => storageService.getScoreboard(),
+  getScoreboard: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/scoreboard'),
+      () => storageService.getScoreboard()
+    );
+  },
 
   // Settings
-  getSettings: () => storageService.getSettings(),
-  updateSettings: (data: Partial<AcademySettings>) => storageService.updateSettings(data),
-  getAdminStats: () => storageService.getAdminStats(),
+  getSettings: async (): Promise<AcademySettings> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<{ settings: AcademySettings }>('/settings');
+        return (res as any)?.settings || (res as any);
+      },
+      () => storageService.getSettings()
+    );
+  },
+
+  updateSettings: async (data: Partial<AcademySettings>): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/settings', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+      () => storageService.updateSettings(data)
+    );
+  },
+
+  getAdminStats: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest('/settings/admin-stats'),
+      () => storageService.getAdminStats()
+    );
+  },
 
   // Backup & Restore
   exportDatabase: () => storageService.exportDatabase(),

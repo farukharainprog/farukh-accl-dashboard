@@ -77,7 +77,7 @@ usersRouter.get('/', authMiddleware, requireRole('owner', 'admin', 'teacher'), (
 usersRouter.put('/:id', authMiddleware, requireRole('owner', 'admin'), (req: AuthRequest, res: Response) => {
   const targetId = req.params.id;
   const actor = req.user!;
-  const { role, status, assigned_teacher_id, can_approve, can_admit, learning_level } = req.body;
+  const { full_name, father_name, whatsapp, role, status, assigned_teacher_id, can_approve, can_admit, learning_level } = req.body;
 
   const target = queryOne<User>('SELECT * FROM users WHERE id = ?', targetId);
   if (!target) {
@@ -106,7 +106,10 @@ usersRouter.put('/:id', authMiddleware, requireRole('owner', 'admin'), (req: Aut
 
   execute(`
     UPDATE users
-    SET role = coalesce(?, role),
+    SET full_name = coalesce(?, full_name),
+        father_name = coalesce(?, father_name),
+        whatsapp = coalesce(?, whatsapp),
+        role = coalesce(?, role),
         status = coalesce(?, status),
         assigned_teacher_id = coalesce(?, assigned_teacher_id),
         can_approve = coalesce(?, can_approve),
@@ -115,6 +118,9 @@ usersRouter.put('/:id', authMiddleware, requireRole('owner', 'admin'), (req: Aut
         updated_at = ?
     WHERE id = ?
   `,
+    full_name ? full_name.trim() : null,
+    father_name ? father_name.trim() : null,
+    whatsapp ? whatsapp.trim() : null,
     role || null,
     status || null,
     assigned_teacher_id !== undefined ? (assigned_teacher_id || null) : null,

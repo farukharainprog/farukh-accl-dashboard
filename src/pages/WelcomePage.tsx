@@ -3,8 +3,6 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import {
   GraduationCap,
-  Shield,
-  UserCheck,
   UserPlus,
   LogIn,
   MessageCircle,
@@ -14,9 +12,9 @@ import {
   BookOpen,
   Users,
   Video,
-  KeyRound,
   AlertCircle,
   Clock,
+  Award,
 } from 'lucide-react';
 
 interface WelcomePageProps {
@@ -24,11 +22,11 @@ interface WelcomePageProps {
 }
 
 export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
-  const { login, settings, hasOwner, refreshUser } = useAuth();
+  const { login, settings } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'teacher' | 'owner_setup'>('login');
+  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'teacher'>('login');
 
-  // Login form state
+  // Login form state (empty by default for complete privacy and security)
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -57,15 +55,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const [teachSuccess, setTeachSuccess] = useState<string | null>(null);
   const [teachError, setTeachError] = useState('');
 
-  // Owner Setup state
-  const [ownerName, setOwnerName] = useState('FARUKH BUSINESSMAN WALA');
-  const [ownerEmail, setOwnerEmail] = useState('farukharain962@gmail.com');
-  const [ownerPassword, setOwnerPassword] = useState('@Farukh2199');
-  const [ownerWhatsapp, setOwnerWhatsapp] = useState('0345 3967083');
-  const [ownerKey, setOwnerKey] = useState('');
-  const [ownerLoading, setOwnerLoading] = useState(false);
-  const [ownerError, setOwnerError] = useState('');
-
   const dashboardTitle = settings?.dashboard_title || 'Farukh Businessman Wala ACCL Dashboard';
   const academyName = settings?.academy_name || 'Rehan School Tuition Academy';
   const primaryPhone = settings?.whatsapp_primary || '0345 3967083';
@@ -81,13 +70,13 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
 
     try {
       const res = await api.login({
-        email: loginEmail.trim(),
+        email: loginEmail.trim().toLowerCase(),
         password: loginPassword,
       });
 
       login(res.token, res.user);
 
-      if (res.isPending) {
+      if (res.isPending || res.user?.status === 'pending') {
         setPendingNotice(true);
       } else {
         onSuccessLogin();
@@ -109,14 +98,19 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
       const res = await api.register({
         full_name: regName.trim(),
         father_name: regFatherName.trim(),
-        email: regEmail.trim(),
+        email: regEmail.trim().toLowerCase(),
         password: regPassword,
         whatsapp: regWhatsapp.trim(),
         learning_level: regLevel,
       });
 
       login(res.token, res.user);
-      setRegSuccess(res.message);
+      setRegSuccess(res.message || 'Registration submitted! Please wait for owner activation.');
+      setRegName('');
+      setRegFatherName('');
+      setRegEmail('');
+      setRegPassword('');
+      setRegWhatsapp('');
     } catch (err: any) {
       setRegError(err.message || 'Registration failed.');
     } finally {
@@ -133,13 +127,13 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
     try {
       const res = await api.submitTeacherApplication({
         full_name: teachName.trim(),
-        email: teachEmail.trim(),
+        email: teachEmail.trim().toLowerCase(),
         whatsapp: teachWhatsapp.trim(),
         subjects: teachSubjects.trim(),
         introduction: teachIntro.trim(),
         experience: teachExp.trim(),
       });
-      setTeachSuccess(res.message);
+      setTeachSuccess(res.message || 'Application submitted successfully!');
       setTeachName('');
       setTeachEmail('');
       setTeachWhatsapp('');
@@ -150,29 +144,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
       setTeachError(err.message || 'Application failed.');
     } finally {
       setTeachLoading(false);
-    }
-  };
-
-  const handleOwnerSetupSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setOwnerError('');
-    setOwnerLoading(true);
-
-    try {
-      const res = await api.firstOwnerSetup({
-        full_name: ownerName.trim(),
-        email: ownerEmail.trim(),
-        password: ownerPassword,
-        whatsapp: ownerWhatsapp.trim(),
-        setup_key: ownerKey.trim(),
-      });
-
-      login(res.token, res.user);
-      onSuccessLogin();
-    } catch (err: any) {
-      setOwnerError(err.message || 'Owner setup failed.');
-    } finally {
-      setOwnerLoading(false);
     }
   };
 
@@ -227,7 +198,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
         <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
           <button
             onClick={() => setActiveTab('login')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
               activeTab === 'login'
                 ? 'bg-blue-600 text-white shadow-md'
                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
@@ -239,7 +210,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
 
           <button
             onClick={() => setActiveTab('register')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
               activeTab === 'register'
                 ? 'bg-blue-600 text-white shadow-md'
                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
@@ -251,7 +222,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
 
           <button
             onClick={() => setActiveTab('teacher')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
               activeTab === 'teacher'
                 ? 'bg-emerald-600 text-white shadow-md'
                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
@@ -260,20 +231,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
             <Users className="w-4 h-4" />
             <span>Become a Teacher</span>
           </button>
-
-          {!hasOwner && (
-            <button
-              onClick={() => setActiveTab('owner_setup')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
-                activeTab === 'owner_setup'
-                  ? 'bg-amber-500 text-slate-900 shadow-md'
-                  : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300'
-              }`}
-            >
-              <KeyRound className="w-4 h-4" />
-              <span>Initial Owner Setup</span>
-            </button>
-          )}
         </div>
 
         {/* Form Cards */}
@@ -282,7 +239,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
           {activeTab === 'login' && (
             <div className="max-w-md mx-auto">
               <div className="text-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Sign in to your Academy Account</h2>
+                <h2 className="text-xl font-bold text-slate-900">Sign in to your Account</h2>
                 <p className="text-xs text-slate-500 mt-1">
                   Access your ACCL tasks, attendance tracker, and submissions
                 </p>
@@ -302,7 +259,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                     Account Pending Activation
                   </h4>
                   <p>
-                    Your student registration has been received! The Academy Owner must review and activate your account before you can open the dashboard. You may contact Owner on WhatsApp at <strong>{primaryPhone}</strong> for priority activation.
+                    Your registration has been submitted! The Academy Owner reviews and activates accounts before access is unlocked. You may contact the Owner on WhatsApp at <strong>{primaryPhone}</strong> for priority activation.
                   </p>
                 </div>
               )}
@@ -315,7 +272,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                   <input
                     type="email"
                     required
-                    placeholder="student@example.com"
+                    placeholder="Enter your email address"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
@@ -329,25 +286,11 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                   <input
                     type="password"
                     required
-                    placeholder="••••••••"
+                    placeholder="Enter your password"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   />
-                </div>
-
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <span className="text-slate-400">Owner Access:</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLoginEmail('farukharain962@gmail.com');
-                      setLoginPassword('@Farukh2199');
-                    }}
-                    className="text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer"
-                  >
-                    Auto-Fill Owner Credentials
-                  </button>
                 </div>
 
                 <button
@@ -364,9 +307,9 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('register')}
-                  className="font-bold text-blue-600 hover:underline"
+                  className="font-bold text-blue-600 hover:underline cursor-pointer"
                 >
-                  Create an account
+                  Register Here
                 </button>
               </div>
             </div>
@@ -376,11 +319,31 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
           {activeTab === 'register' && (
             <div className="max-w-lg mx-auto">
               <div className="text-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Student Admission & Access Request</h2>
+                <h2 className="text-xl font-bold text-slate-900">Student Admission & Registration</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Enroll in Rehan School Foundation ACCL Course (Day 1 - 180)
+                  Submit your admission request. Once approved by the Academy Owner, you can sign in to complete your daily tasks.
                 </p>
               </div>
+
+              {regSuccess && (
+                <div className="p-4 mb-6 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs">
+                  <div className="flex items-center gap-2 font-bold mb-1">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    <span>Admission Request Submitted Successfully!</span>
+                  </div>
+                  <p className="mt-1 text-emerald-800 leading-relaxed">
+                    Your request has been placed in the Owner's review queue. As soon as the Owner approves your admission, you can sign in with your email and password.
+                  </p>
+                  <div className="mt-3">
+                    <button
+                      onClick={() => setActiveTab('login')}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Go to Sign In
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {regError && (
                 <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
@@ -389,128 +352,106 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </div>
               )}
 
-              {regSuccess ? (
-                <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 text-center">
-                  <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
-                  <h3 className="text-base font-bold text-emerald-900 mb-1">Registration Submitted!</h3>
-                  <p className="text-xs text-emerald-800 leading-relaxed mb-4">
-                    {regSuccess}
-                  </p>
-                  <p className="text-xs text-slate-600 mb-4">
-                    Please send your name on WhatsApp to <strong>{primaryPhone}</strong> for rapid admission approval.
-                  </p>
-                  <button
-                    onClick={() => setActiveTab('login')}
-                    className="px-5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow"
-                  >
-                    Go to Sign In
-                  </button>
+              <form onSubmit={handleRegisterSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Student Full Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Muhammad Farukh"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Father's Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Father's full name"
+                      value={regFatherName}
+                      onChange={(e) => setRegFatherName(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
-              ) : (
-                <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Student Full Name *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Farukh Arain"
-                        value={regName}
-                        onChange={(e) => setRegName(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Father's Name
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Father's full name"
-                        value={regFatherName}
-                        onChange={(e) => setRegFatherName(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Gmail / Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="student@gmail.com"
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Email / Gmail *
-                      </label>
-                      <input
-                        type="email"
-                        required
-                        placeholder="student@gmail.com"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      WhatsApp / Mobile Number *
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="03XXXXXXXXX"
+                      value={regWhatsapp}
+                      onChange={(e) => setRegWhatsapp(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        WhatsApp Number *
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        placeholder="e.g. 03453967083"
-                        value={regWhatsapp}
-                        onChange={(e) => setRegWhatsapp(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Create Password *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      placeholder="Minimum 6 characters"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Create Password * (min 6 chars)
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        minLength={6}
-                        placeholder="••••••••"
-                        value={regPassword}
-                        onChange={(e) => setRegPassword(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Starting Level *
-                      </label>
-                      <select
-                        value={regLevel}
-                        onChange={(e) => setRegLevel(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white"
-                      >
-                        <option value="Book 1">Book 1 (Foundation Level)</option>
-                        <option value="Book 2">Book 2 (Advanced Level)</option>
-                      </select>
-                    </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Enrolling In
+                    </label>
+                    <select
+                      value={regLevel}
+                      onChange={(e) => setRegLevel(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="Book 1">ACCL Book 1 (Days 1–180)</option>
+                      <option value="Book 2">ACCL Book 2 (Days 1–41)</option>
+                    </select>
                   </div>
+                </div>
 
-                  <p className="text-[11px] text-slate-500 italic">
-                    Note: Newly registered accounts require Owner activation before opening tasks.
-                  </p>
-
-                  <button
-                    type="submit"
-                    disabled={regLoading}
-                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50"
-                  >
-                    {regLoading ? 'Submitting Registration...' : 'Submit Student Admission Request'}
-                  </button>
-                </form>
-              )}
+                <button
+                  type="submit"
+                  disabled={regLoading}
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {regLoading ? 'Submitting Registration...' : 'Submit Student Registration'}
+                </button>
+              </form>
             </div>
           )}
 
@@ -520,36 +461,30 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
               <div className="text-center mb-6">
                 <h2 className="text-xl font-bold text-slate-900">Become an ACCL Teacher / Mentor</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Guide students through Foundation Book 1 & Book 2 tasks, review proofs, and lead Live Zoom sessions
+                  Apply to facilitate students, review task submissions, and guide students through English and coding milestones. All teacher requests are approved by the Owner.
                 </p>
               </div>
 
-              {teachError && (
-                <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                  <span>{teachError}</span>
-                </div>
-              )}
-
               {teachSuccess ? (
-                <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 text-center">
-                  <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
-                  <h3 className="text-base font-bold text-emerald-900 mb-1">Application Submitted!</h3>
-                  <p className="text-xs text-emerald-800 leading-relaxed mb-4">
-                    {teachSuccess}
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs">
+                  <div className="flex items-center gap-2 font-bold mb-1">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    <span>Teacher Application Submitted!</span>
+                  </div>
+                  <p className="mt-1 text-emerald-800 leading-relaxed">{teachSuccess}</p>
+                  <p className="mt-2 text-slate-600 text-[11px]">
+                    The Academy Owner will review your credentials and contact you on WhatsApp.
                   </p>
-                  <p className="text-xs text-slate-600 mb-4">
-                    The Owner will review your credentials and contact you on WhatsApp at <strong>{primaryPhone}</strong> with your login passkey.
-                  </p>
-                  <button
-                    onClick={() => setActiveTab('login')}
-                    className="px-5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow"
-                  >
-                    Back to Sign In
-                  </button>
                 </div>
               ) : (
                 <form onSubmit={handleTeacherSubmit} className="space-y-4">
+                  {teachError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span>{teachError}</span>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -627,7 +562,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                   <button
                     type="submit"
                     disabled={teachLoading}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50"
+                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer"
                   >
                     {teachLoading ? 'Submitting Application...' : 'Submit Teacher Application'}
                   </button>
@@ -635,101 +570,46 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
               )}
             </div>
           )}
+        </div>
 
-          {/* TAB 4: OWNER SETUP */}
-          {activeTab === 'owner_setup' && (
-            <div className="max-w-md mx-auto">
-              <div className="text-center mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700 mx-auto mb-2">
-                  <Shield className="w-6 h-6" />
-                </div>
-                <h2 className="text-xl font-bold text-slate-900">Academy Owner Setup</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Initialize the first Super Admin / Owner account with full administrative authority
-                </p>
-              </div>
-
-              {ownerError && (
-                <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                  <span>{ownerError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleOwnerSetupSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Owner Full Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="FARUKH BUSINESSMAN WALA"
-                    value={ownerName}
-                    onChange={(e) => setOwnerName(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Owner Email / Gmail
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="owner@rehanschool.com"
-                    value={ownerEmail}
-                    onChange={(e) => setOwnerEmail(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Create Master Password
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    placeholder="••••••••"
-                    value={ownerPassword}
-                    onChange={(e) => setOwnerPassword(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Owner WhatsApp Number
-                  </label>
-                  <input
-                    type="tel"
-                    placeholder="03453967083"
-                    value={ownerWhatsapp}
-                    onChange={(e) => setOwnerWhatsapp(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={ownerLoading}
-                  className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-900 text-xs font-black shadow-md transition-colors disabled:opacity-50"
-                >
-                  {ownerLoading ? 'Setting up Owner...' : 'Initialize Owner Account'}
-                </button>
-              </form>
+        {/* Feature Highlights Section */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-8">
+          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 shrink-0">
+              <BookOpen className="w-5 h-5" />
             </div>
-          )}
+            <div>
+              <h4 className="text-xs font-bold text-slate-900">180 ACCL Days</h4>
+              <p className="text-[11px] text-slate-500">Structured lessons & submissions</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-slate-900">Live Attendance</h4>
+              <p className="text-[11px] text-slate-500">Asia/Karachi check-in tracking</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-slate-900">Mentor Reviews</h4>
+              <p className="text-[11px] text-slate-500">Approvals & feedback</p>
+            </div>
+          </div>
         </div>
       </main>
 
-      {/* Footer */}
+      {/* Footer (Clean & Secure - No personal owner credentials exposed) */}
       <footer className="bg-slate-900 text-slate-400 py-6 px-4 text-center text-xs border-t border-slate-800">
         <p className="font-semibold text-slate-200">
-          Created by FARUKH BUSINESSMAN WALA • {academyName}
+          {academyName}
         </p>
         <p className="text-[11px] text-slate-500 mt-1">
           WhatsApp: {primaryPhone} / {secondPhone}

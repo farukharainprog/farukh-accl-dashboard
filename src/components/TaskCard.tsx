@@ -203,7 +203,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           </span>
 
           {/* Required Proof Types pill badges */}
-          {task.required_links.map((linkType, idx) => (
+          {(Array.isArray(task.required_links) ? task.required_links : []).map((linkType: string, idx: number) => (
             <span
               key={idx}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200"

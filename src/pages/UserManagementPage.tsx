@@ -28,6 +28,45 @@ export const UserManagementPage: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
+  // Edit user modal state
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [editFullName, setEditFullName] = useState('');
+  const [editFatherName, setEditFatherName] = useState('');
+  const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [editLevel, setEditLevel] = useState('Book 1');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const startEdit = (u: UserProfile) => {
+    setEditingUser(u);
+    setEditFullName(u.full_name || '');
+    setEditFatherName(u.father_name || '');
+    setEditWhatsapp(u.whatsapp || '');
+    setEditLevel(u.learning_level || 'Book 1');
+    setEditError('');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await api.updateUser(editingUser.id, {
+        full_name: editFullName.trim(),
+        father_name: editFatherName.trim(),
+        whatsapp: editWhatsapp.trim(),
+        learning_level: editLevel,
+      });
+      setEditingUser(null);
+      await fetchUsers();
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to update user.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -294,6 +333,13 @@ export const UserManagementPage: React.FC = () => {
 
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => startEdit(u)}
+                              className="px-2 py-1 rounded border border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold text-[11px] cursor-pointer"
+                            >
+                              Edit
+                            </button>
+
                             {u.status === 'pending' && (
                               <button
                                 onClick={() => handleStatusChange(u.id, 'active')}
@@ -385,6 +431,113 @@ export const UserManagementPage: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Student / User Details Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <h3 className="font-bold text-base text-slate-900">
+                Edit Student Information
+              </h3>
+              <button
+                onClick={() => setEditingUser(null)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {editError && (
+              <div className="p-3 my-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+                {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Father's Name
+                </label>
+                <input
+                  type="text"
+                  value={editFatherName}
+                  onChange={(e) => setEditFatherName(e.target.value)}
+                  className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  WhatsApp / Mobile Number
+                </label>
+                <input
+                  type="tel"
+                  value={editWhatsapp}
+                  onChange={(e) => setEditWhatsapp(e.target.value)}
+                  className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Email (Read-only)
+                </label>
+                <input
+                  type="email"
+                  disabled
+                  value={editingUser.email}
+                  className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-slate-100 text-slate-500 cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Learning Level
+                </label>
+                <select
+                  value={editLevel}
+                  onChange={(e) => setEditLevel(e.target.value)}
+                  className="w-full text-xs px-3.5 py-2.5 border rounded-xl bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Book 1">Book 1</option>
+                  <option value="Book 2">Book 2</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+                >
+                  {editSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

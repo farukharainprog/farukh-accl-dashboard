@@ -7,7 +7,6 @@ export const Footer: React.FC = () => {
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
 
-  const footerCredit = settings?.footer_credit || 'Created by FARUKH BUSINESSMAN WALA';
   const academyName = settings?.academy_name || 'Rehan School Tuition Academy';
   const primaryPhone = settings?.whatsapp_primary || '0345 3967083';
   const primaryWaLink = settings?.whatsapp_primary_link || 'https://wa.me/923453967083';
@@ -23,7 +22,7 @@ export const Footer: React.FC = () => {
             {academyName}
           </div>
           <div className="text-xs text-blue-300 font-semibold mt-1">
-            {footerCredit}
+            Artificial Intelligence & Creative Leadership (ACCL)
           </div>
           <p className="text-[11px] text-slate-400 mt-1 max-w-sm">
             Official ACCL curriculum tracking, social proof submission, and mentor evaluation system.
@@ -71,7 +70,7 @@ export const Footer: React.FC = () => {
             </button>
           </div>
           <div className="text-[11px] text-slate-500">
-            © {new Date().getFullYear()} {footerCredit}. All rights reserved.
+            © {new Date().getFullYear()} {academyName}. All rights reserved.
           </div>
         </div>
       </div>
