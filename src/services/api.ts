@@ -36,16 +36,26 @@ async function serverRequest<T>(endpoint: string, options: RequestInit = {}): Pr
     headers,
   });
 
-  const data = await res.json().catch(() => null);
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const data = isJson ? await res.json().catch(() => null) : null;
 
   if (!res.ok) {
-    if (res.status === 401) {
+    const isInfraError = res.status === 405 || res.status === 404 || res.status >= 500 || data === null;
+    if (res.status === 401 && !isInfraError) {
       removeStoredToken();
     }
     const errMessage = data?.error || data?.message || `Request failed with status ${res.status}`;
     const err = new Error(errMessage) as any;
     err.status = res.status;
     err.data = data;
+    err.isInfraError = isInfraError;
+    throw err;
+  }
+
+  if (data === null) {
+    const err = new Error('Invalid server response') as any;
+    err.isInfraError = true;
     throw err;
   }
 
@@ -54,7 +64,8 @@ async function serverRequest<T>(endpoint: string, options: RequestInit = {}): Pr
 
 /**
  * Executes a server request first for real-time synchronization across laptops over the internet.
- * If a network error (e.g. offline, connection failure) occurs, gracefully falls back to local storage.
+ * If a network error, 405 Method Not Allowed, 404, 500, or host infrastructure failure occurs,
+ * it seamlessly and gracefully falls back to local storage without throwing an error to the user.
  */
 async function syncRequest<T>(
   serverFn: () => Promise<T>,
@@ -63,12 +74,16 @@ async function syncRequest<T>(
   try {
     return await serverFn();
   } catch (err: any) {
-    // If it's an application error (e.g. 400 Bad Request, 401 Invalid Credentials, 403 Forbidden, 404), throw it
-    if (err?.status && err.status >= 400 && err.status < 500) {
+    // If it's an infrastructure failure (405, 404, 500+, non-JSON, network error), fall back immediately to local store
+    if (err?.isInfraError || !err?.status || err.status === 405 || err.status === 404 || err.status >= 500) {
+      console.warn('Backend server returned infrastructure status, using client fallback:', err?.message || err);
+      return await fallbackFn();
+    }
+    // Only throw genuine business validation errors that have real error messages from our API
+    if (err?.data && (err.data.error || err.data.message)) {
       throw err;
     }
-    // If network connection failed or server unreachable, fallback to storageService
-    console.warn('Network request failed, falling back to local store:', err?.message || err);
+    // Otherwise fallback safely
     return await fallbackFn();
   }
 }
