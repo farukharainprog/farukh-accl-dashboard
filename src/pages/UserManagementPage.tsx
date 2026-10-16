@@ -67,34 +67,34 @@ export const UserManagementPage: React.FC = () => {
     }
   };
 
-  const fetchUsers = async () => {
-    setLoading(true);
+  const fetchUsers = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.getUsers({
         role: roleFilter || undefined,
         status: statusFilter || undefined,
         search: search.trim() || undefined,
       });
-      setUsers(res.users);
+      setUsers(res.users || []);
 
       const teachRes = await api.getTeachersList();
-      setTeachers(teachRes.teachers);
+      setTeachers(teachRes.teachers || []);
     } catch (err) {
       console.error('Failed to load users:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  const fetchLogs = async () => {
-    setLogsLoading(true);
+  const fetchLogs = async (silent = false) => {
+    if (!silent) setLogsLoading(true);
     try {
       const res = await api.getAuditLogs();
-      setAuditLogs(res.logs);
+      setAuditLogs(res.logs || []);
     } catch (err) {
       console.error('Failed to load audit logs:', err);
     } finally {
-      setLogsLoading(false);
+      if (!silent) setLogsLoading(false);
     }
   };
 
@@ -104,6 +104,16 @@ export const UserManagementPage: React.FC = () => {
     } else {
       fetchLogs();
     }
+
+    // Auto-refresh every 10 seconds for live sync
+    const interval = setInterval(() => {
+      if (activeTab === 'users') {
+        fetchUsers(true);
+      } else {
+        fetchLogs(true);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
   }, [roleFilter, statusFilter, activeTab]);
 
   const handleStatusChange = async (userId: string, newStatus: string) => {

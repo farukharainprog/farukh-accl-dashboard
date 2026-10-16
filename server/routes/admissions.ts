@@ -15,9 +15,21 @@ admissionsRouter.post('/student', (req: AuthRequest, res: Response) => {
     return;
   }
 
-  const existingUser = queryOne('SELECT id FROM users WHERE email = ?', email.toLowerCase().trim());
-  if (existingUser) {
-    res.status(400).json({ error: 'An account or application with this email already exists in the academy.' });
+  const cleanEmail = email.toLowerCase().trim();
+  const existingUser = queryOne<{ id: string; status: string }>('SELECT id, status FROM users WHERE email = ?', cleanEmail);
+  const existingAdmission = queryOne<{ id: string; status: string }>('SELECT id, status FROM student_admissions WHERE email = ?', cleanEmail);
+
+  if (existingUser || existingAdmission) {
+    const isPending = existingUser?.status === 'pending' || existingAdmission?.status === 'pending';
+    if (isPending) {
+      res.status(400).json({
+        error: 'An admission application with this Gmail address has already been submitted and is currently Pending Owner Review and Activation. Please wait for the Academy Owner to activate your account.',
+      });
+      return;
+    }
+    res.status(400).json({
+      error: 'An account with this Gmail address is already registered and active. Please select "Sign In" and enter your password.',
+    });
     return;
   }
 
@@ -163,12 +175,28 @@ admissionsRouter.post('/students/:id/approve', authMiddleware, requireRole('owne
 
 // Owner: Reject student admission
 admissionsRouter.post('/students/:id/reject', authMiddleware, requireRole('owner', 'admin'), (req: AuthRequest, res: Response) => {
+  const admission = queryOne<StudentAdmission>('SELECT * FROM student_admissions WHERE id = ?', req.params.id);
+  if (!admission) {
+    res.status(404).json({ error: 'Admission request not found.' });
+    return;
+  }
   const now = new Date().toISOString();
   execute(`
     UPDATE student_admissions
     SET status = 'rejected', reviewed_at = ?
     WHERE id = ?
   `, now, req.params.id);
+
+  // Mark associated pending user account as suspended so they cannot login
+  execute(`
+    UPDATE users
+    SET status = 'suspended', updated_at = ?
+    WHERE email = ? AND status = 'pending'
+  `, now, admission.email);
+
+  if (req.user) {
+    logAudit(req.user.id, req.user.full_name, req.user.role, 'STUDENT_ADMISSION_REJECTED', `Rejected admission for ${admission.full_name} (${admission.email})`);
+  }
 
   res.json({ message: 'Student admission rejected.' });
 });

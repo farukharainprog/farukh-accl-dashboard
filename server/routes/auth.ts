@@ -95,9 +95,20 @@ authRouter.post('/register', (req, res: Response) => {
     }
 
     const cleanEmail = String(email).toLowerCase().trim();
-    const existing = queryOne('SELECT id FROM users WHERE email = ?', cleanEmail);
-    if (existing) {
-      res.status(400).json({ error: 'An account with this email already exists.' });
+    const existingUser = queryOne<{ id: string; status: string; role: string }>('SELECT id, status, role FROM users WHERE email = ?', cleanEmail);
+    const existingAdmission = queryOne<{ id: string; status: string }>('SELECT id, status FROM student_admissions WHERE email = ?', cleanEmail);
+
+    if (existingUser || existingAdmission) {
+      const isPending = existingUser?.status === 'pending' || existingAdmission?.status === 'pending';
+      if (isPending) {
+        res.status(400).json({
+          error: 'An admission application with this Gmail address has already been submitted and is currently Pending Owner Review and Activation. Please wait for the Academy Owner to activate your account.',
+        });
+        return;
+      }
+      res.status(400).json({
+        error: 'An account with this Gmail address already exists and is active. Please select "Sign In" and enter your password.',
+      });
       return;
     }
 
@@ -151,11 +162,11 @@ authRouter.post('/register', (req, res: Response) => {
 
     logAudit(id, String(full_name).trim(), 'student', 'STUDENT_REGISTERED', `Student registered with status: ${initialStatus}`);
 
-    const token = createToken(id, 'student');
+    const token = requireApproval ? undefined : createToken(id, 'student');
 
     res.status(201).json({
       message: requireApproval
-        ? 'Registration submitted! Your account is currently Pending Activation. The Academy Owner will review and activate your account.'
+        ? 'Registration submitted! Your application is currently Pending Owner Review and Activation. The Academy Owner will review and activate your account.'
         : 'Registration successful! Welcome to the Academy.',
       token,
       user: {
@@ -214,6 +225,21 @@ authRouter.post('/login', (req, res: Response) => {
       return;
     }
 
+    if (user.status === 'pending') {
+      res.status(403).json({
+        error: 'Your admission application is currently under review by the Academy Owner. Once the Owner approves and activates your account, you will be able to sign in.',
+        isPending: true,
+      });
+      return;
+    }
+
+    if (user.status === 'rejected') {
+      res.status(403).json({
+        error: 'Your admission application was not approved by the Academy Owner. If you have questions, please contact the academy on WhatsApp.',
+      });
+      return;
+    }
+
     const token = createToken(user.id, user.role);
 
     res.json({
@@ -234,7 +260,7 @@ authRouter.post('/login', (req, res: Response) => {
         can_admit: Boolean(user.can_admit),
         created_at: user.created_at,
       },
-      isPending: user.status === 'pending',
+      isPending: false,
     });
   } catch (error: any) {
     console.error('[Login Error]:', error);

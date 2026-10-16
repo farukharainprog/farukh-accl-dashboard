@@ -55,8 +55,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   const taskListRef = useRef<HTMLDivElement>(null);
 
-  const fetchDashboardData = async () => {
-    setLoading(true);
+  const fetchDashboardData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [tasksRes, statsRes, summaryRes] = await Promise.all([
         api.getTasks({
@@ -69,19 +69,24 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         api.getSummaryMe(selectedBook),
       ]);
 
-      setTasks(tasksRes.tasks);
-      setAvailableDays(statsRes.days);
-      setCategories(statsRes.categories);
+      setTasks(tasksRes.tasks || []);
+      setAvailableDays(statsRes.days || []);
+      setCategories(statsRes.categories || []);
       setSummary(summaryRes);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchDashboardData();
+    // Real-time synchronization: poll every 10 seconds to sync approval/rejection statuses
+    const interval = setInterval(() => {
+      fetchDashboardData(true);
+    }, 10000);
+    return () => clearInterval(interval);
   }, [selectedBook, selectedDay, selectedCategory]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -309,7 +314,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </button>
               )}
               <button
-                onClick={fetchDashboardData}
+                onClick={() => fetchDashboardData(false)}
                 className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />

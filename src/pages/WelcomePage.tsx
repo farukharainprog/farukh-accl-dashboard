@@ -74,14 +74,20 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
         password: loginPassword,
       });
 
-      login(res.token, res.user);
-
       if (res.isPending || res.user?.status === 'pending') {
+        // Do NOT log in pending students
         setPendingNotice(true);
+        setLoginError('Your admission application is currently under review by the Academy Owner. Once the Owner approves and activates your account, you will be able to sign in.');
+      } else if (res.user?.status === 'rejected' || res.user?.status === 'suspended') {
+        setLoginError('Your admission application was not approved or is suspended. Please contact the academy on WhatsApp.');
       } else {
+        login(res.token, res.user);
         onSuccessLogin();
       }
     } catch (err: any) {
+      if (err?.message?.toLowerCase().includes('pending') || err?.data?.isPending) {
+        setPendingNotice(true);
+      }
       setLoginError(err.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoginLoading(false);
@@ -104,8 +110,9 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
         learning_level: regLevel,
       });
 
-      login(res.token, res.user);
-      setRegSuccess(res.message || 'Registration submitted! Please wait for owner activation.');
+      // Show prominent success notification and clear inputs.
+      // Do NOT log them in automatically - they must await Owner approval.
+      setRegSuccess(res.message || 'Student admission submitted successfully! Your application has been sent to the Academy Owner for review and activation. You will be able to sign in once the Owner approves your account.');
       setRegName('');
       setRegFatherName('');
       setRegEmail('');

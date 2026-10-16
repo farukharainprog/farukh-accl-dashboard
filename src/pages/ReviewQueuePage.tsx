@@ -23,24 +23,29 @@ export const ReviewQueuePage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [selectedSubmission, setSelectedSubmission] = useState<any | null>(null);
 
-  const fetchQueue = async () => {
-    setLoading(true);
+  const fetchQueue = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.getReviewQueue({
         status: statusFilter || undefined,
         book: bookFilter || undefined,
         search: search.trim() || undefined,
       });
-      setSubmissions(res.submissions);
+      setSubmissions(res.submissions || []);
     } catch (err) {
       console.error('Failed to load review queue:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchQueue();
+    // Real-time synchronization: poll every 8 seconds across different laptops
+    const interval = setInterval(() => {
+      fetchQueue(true);
+    }, 8000);
+    return () => clearInterval(interval);
   }, [statusFilter, bookFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -65,7 +70,7 @@ export const ReviewQueuePage: React.FC = () => {
         </div>
 
         <button
-          onClick={fetchQueue}
+          onClick={() => fetchQueue(false)}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors self-start md:self-auto"
         >

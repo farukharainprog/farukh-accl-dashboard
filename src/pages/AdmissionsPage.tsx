@@ -14,7 +14,7 @@ import {
 
 export const AdmissionsPage: React.FC = () => {
   const { user, isOwner, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState<'student_form' | 'teacher_form' | 'student_requests' | 'teacher_requests'>('student_form');
+  const [activeTab, setActiveTab] = useState<'student_requests' | 'teacher_requests' | 'student_form' | 'teacher_form'>('student_requests');
 
   // New Student Admission Form state
   const [studentName, setStudentName] = useState('');
@@ -42,36 +42,40 @@ export const AdmissionsPage: React.FC = () => {
   const [studentAdmissions, setStudentAdmissions] = useState<any[]>([]);
   const [teacherApplications, setTeacherApplications] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+  const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     api.getTeachersList().then((res) => setTeachers(res.teachers)).catch(() => {});
   }, []);
 
-  const fetchAdmissionsData = async () => {
-    setLoadingData(true);
+  const fetchAdmissionsData = async (silent = false) => {
+    if (!silent) setLoadingData(true);
     try {
       if (isAdmin) {
         const [sRes, tRes] = await Promise.all([
           api.getStudentAdmissions(),
           api.getTeacherApplications(),
         ]);
-        setStudentAdmissions(sRes.admissions);
-        setTeacherApplications(tRes.applications);
+        setStudentAdmissions(sRes.admissions || []);
+        setTeacherApplications(tRes.applications || []);
       } else {
         const sRes = await api.getStudentAdmissions();
-        setStudentAdmissions(sRes.admissions);
+        setStudentAdmissions(sRes.admissions || []);
       }
     } catch (err) {
       console.error('Failed to load admissions:', err);
     } finally {
-      setLoadingData(false);
+      if (!silent) setLoadingData(false);
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'student_requests' || activeTab === 'teacher_requests') {
-      fetchAdmissionsData();
-    }
+    fetchAdmissionsData();
+    // Real-time synchronization: poll every 8 seconds across different laptops
+    const interval = setInterval(() => {
+      fetchAdmissionsData(true);
+    }, 8000);
+    return () => clearInterval(interval);
   }, [activeTab]);
 
   const handleStudentSubmit = async (e: React.FormEvent) => {
@@ -95,7 +99,7 @@ export const AdmissionsPage: React.FC = () => {
       setStudentEmail('');
       setNotes('');
     } catch (err: any) {
-      alert(err.message || 'Failed to submit admission');
+      setActionNotice({ type: 'error', text: err.message || 'Failed to submit admission' });
     } finally {
       setSubmittingStudent(false);
     }
@@ -122,7 +126,7 @@ export const AdmissionsPage: React.FC = () => {
       setTeachIntro('');
       setTeachExp('');
     } catch (err: any) {
-      alert(err.message || 'Failed to submit application');
+      setActionNotice({ type: 'error', text: err.message || 'Failed to submit application' });
     } finally {
       setSubmittingTeacher(false);
     }
@@ -131,44 +135,74 @@ export const AdmissionsPage: React.FC = () => {
   const handleApproveStudent = async (id: string) => {
     try {
       const res = await api.approveStudentAdmission(id);
-      alert(res.message);
+      setActionNotice({ type: 'success', text: res.message || 'Student admission approved! Student account is now active.' });
       await fetchAdmissionsData();
     } catch (err: any) {
-      alert(err.message || 'Approval failed');
+      setActionNotice({ type: 'error', text: err.message || 'Approval failed' });
     }
   };
 
   const handleRejectStudent = async (id: string) => {
     try {
-      await api.rejectStudentAdmission(id);
+      const res = await api.rejectStudentAdmission(id);
+      setActionNotice({ type: 'success', text: res.message || 'Student admission rejected.' });
       await fetchAdmissionsData();
     } catch (err: any) {
-      alert(err.message || 'Rejection failed');
+      setActionNotice({ type: 'error', text: err.message || 'Rejection failed' });
     }
   };
 
   const handleApproveTeacher = async (id: string) => {
-    const canApprove = confirm('Enable Task Approval permission for this teacher? (OK = Yes, Cancel = Feedback only)');
     try {
-      const res = await api.approveTeacherApplication(id, { can_approve: canApprove });
-      alert(res.message + (res.temporaryPassword ? ` Initial Password: ${res.temporaryPassword}` : ''));
+      const res = await api.approveTeacherApplication(id, { can_approve: true });
+      setActionNotice({
+        type: 'success',
+        text: (res.message || 'Teacher approved!') + (res.temporaryPassword ? ` Initial Temporary Password: ${res.temporaryPassword}` : ''),
+      });
       await fetchAdmissionsData();
     } catch (err: any) {
-      alert(err.message || 'Approval failed');
+      setActionNotice({ type: 'error', text: err.message || 'Approval failed' });
     }
   };
 
   const handleRejectTeacher = async (id: string) => {
     try {
-      await api.rejectTeacherApplication(id);
+      const res = await api.rejectTeacherApplication(id);
+      setActionNotice({ type: 'success', text: res.message || 'Teacher application rejected.' });
       await fetchAdmissionsData();
     } catch (err: any) {
-      alert(err.message || 'Rejection failed');
+      setActionNotice({ type: 'error', text: err.message || 'Rejection failed' });
     }
   };
 
   return (
     <div className="space-y-6">
+      {/* Action Notification Banner */}
+      {actionNotice && (
+        <div
+          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+            actionNotice.type === 'success'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+              : 'bg-red-50 border-red-300 text-red-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {actionNotice.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+            )}
+            <span>{actionNotice.text}</span>
+          </div>
+          <button
+            onClick={() => setActionNotice(null)}
+            className="text-slate-400 hover:text-slate-600 text-xs px-2 py-1 rounded-md"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -183,50 +217,70 @@ export const AdmissionsPage: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setActiveTab('student_form')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'student_form'
+            onClick={() => setActiveTab('student_requests')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'student_requests'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            New Student Form
-          </button>
-
-          <button
-            onClick={() => setActiveTab('teacher_form')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'teacher_form'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            New Teacher Form
-          </button>
-
-          <button
-            onClick={() => setActiveTab('student_requests')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'student_requests'
-                ? 'bg-slate-800 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            Review Admissions
+            <span>Review Admissions</span>
+            {studentAdmissions.filter((a) => a.status === 'pending').length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-900 text-[10px] font-black">
+                {studentAdmissions.filter((a) => a.status === 'pending').length}
+              </span>
+            )}
           </button>
 
           {isAdmin && (
             <button
               onClick={() => setActiveTab('teacher_requests')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'teacher_requests'
                   ? 'bg-indigo-700 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              Teacher Applications
+              <span>Teacher Applications</span>
+              {teacherApplications.filter((a) => a.status === 'pending').length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-900 text-[10px] font-black">
+                  {teacherApplications.filter((a) => a.status === 'pending').length}
+                </span>
+              )}
             </button>
           )}
+
+          <button
+            onClick={() => setActiveTab('student_form')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'student_form'
+                ? 'bg-teal-600 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            Manual Student Form
+          </button>
+
+          <button
+            onClick={() => setActiveTab('teacher_form')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'teacher_form'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            Manual Teacher Form
+          </button>
+
+          <button
+            onClick={() => fetchAdmissionsData(false)}
+            disabled={loadingData}
+            title="Refresh from server"
+            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer text-xs flex items-center gap-1 font-semibold"
+          >
+            <Clock className={`w-3.5 h-3.5 ${loadingData ? 'animate-spin text-blue-600' : ''}`} />
+            <span className="hidden sm:inline">Sync</span>
+          </button>
         </div>
       </div>
 

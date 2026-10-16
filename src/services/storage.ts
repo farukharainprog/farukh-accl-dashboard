@@ -283,10 +283,18 @@ export const storageService = {
     }
 
     const users = getStore<any[]>(KEYS.USERS, []);
+    const admissions = getStore<any[]>(KEYS.ADMISSIONS, []);
     const cleanEmail = String(email).toLowerCase().trim();
 
-    if (users.some((u) => u.email === cleanEmail)) {
-      throw new Error('An account with this email address already exists.');
+    const existingUser = users.find((u) => u.email === cleanEmail);
+    const existingAdmission = admissions.find((a) => a.email === cleanEmail);
+
+    if (existingUser || existingAdmission) {
+      const isPending = existingUser?.status === 'pending' || existingAdmission?.status === 'pending';
+      if (isPending) {
+        throw new Error('An admission application with this Gmail address has already been submitted and is currently Pending Owner Review and Activation. Please wait for the Academy Owner to activate your account.');
+      }
+      throw new Error('An account with this Gmail address already exists and is active. Please select "Sign In" and enter your password.');
     }
 
     const settings = getStore<AcademySettings>(KEYS.SETTINGS, {} as any);
@@ -316,7 +324,6 @@ export const storageService = {
     setStore(KEYS.USERS, users);
 
     // Record admission request
-    const admissions = getStore<any[]>(KEYS.ADMISSIONS, []);
     admissions.unshift({
       id: `adm-${Date.now()}`,
       full_name: newUser.full_name,
@@ -334,8 +341,10 @@ export const storageService = {
 
     logAudit(id, newUser.full_name, 'student', 'STUDENT_REGISTERED', `Student registered with status: ${initialStatus}`);
 
-    const token = `token-${id}-${Date.now()}`;
-    storageService.setStoredToken(token);
+    const token = requireApproval ? '' : `token-${id}-${Date.now()}`;
+    if (!requireApproval) {
+      storageService.setStoredToken(token);
+    }
 
     const userProfile: UserProfile = {
       id: newUser.id,
@@ -353,7 +362,7 @@ export const storageService = {
 
     return {
       message: requireApproval
-        ? 'Registration submitted! Your account is currently Pending Activation. The Academy Owner will review and activate your account.'
+        ? 'Registration submitted! Your application is currently Pending Owner Review and Activation. The Academy Owner will review and activate your account.'
         : 'Registration successful! Welcome to the Academy.',
       token,
       user: userProfile,
@@ -414,6 +423,20 @@ export const storageService = {
 
     if (user.status === 'suspended') {
       throw new Error('Your account is suspended. Please contact the academy administration.');
+    }
+
+    if (user.status === 'pending') {
+      const err = new Error('Your admission application is currently under review by the Academy Owner. Once the Owner approves and activates your account, you will be able to sign in.') as any;
+      err.status = 403;
+      err.data = { error: err.message, isPending: true };
+      throw err;
+    }
+
+    if (user.status === 'rejected') {
+      const err = new Error('Your admission application was not approved by the Academy Owner. If you have questions, please contact the academy on WhatsApp.') as any;
+      err.status = 403;
+      err.data = { error: err.message };
+      throw err;
     }
 
     const token = `token-${user.id}-${Date.now()}`;
@@ -1135,9 +1158,17 @@ export const storageService = {
     const admissions = getStore<any[]>(KEYS.ADMISSIONS, []);
     const admIdx = admissions.findIndex((a) => a.id === id);
     if (admIdx >= 0) {
+      const email = admissions[admIdx].email;
       admissions[admIdx].status = 'rejected';
       admissions[admIdx].reviewed_at = new Date().toISOString();
       setStore(KEYS.ADMISSIONS, admissions);
+
+      const users = getStore<any[]>(KEYS.USERS, []);
+      const userIdx = users.findIndex((u) => u.email === email && u.status === 'pending');
+      if (userIdx >= 0) {
+        users[userIdx].status = 'suspended';
+        setStore(KEYS.USERS, users);
+      }
     }
     return { message: 'Student admission rejected.' };
   },
