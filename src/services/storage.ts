@@ -473,6 +473,153 @@ export const storageService = {
     };
   },
 
+  // Google / Gmail Sign-In
+  async googleLogin(data: { email: string; full_name?: string }): Promise<any> {
+    const { email, full_name } = data;
+    if (!email) throw new Error('Gmail address is required.');
+
+    const cleanEmail = email.toLowerCase().trim();
+    const users = getStore<any[]>(KEYS.USERS, []);
+    let user = users.find((u) => u.email?.toLowerCase().trim() === cleanEmail);
+
+    if (!user) {
+      throw new Error(`This Gmail address (${cleanEmail}) is not yet registered in the portal. Students must be registered by Farukh Businessman Wala in the Owner Dashboard first. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083) to register your student account.`);
+    }
+
+    if (user.status === 'suspended') {
+      throw new Error('Your student account is suspended. Please contact the academy administration.');
+    }
+    if (user.status === 'pending') {
+      const err: any = new Error('Your admission is currently pending review by Farukh Businessman Wala. Please allow up to 12 hours for activation.');
+      err.isPending = true;
+      throw err;
+    }
+    if (user.status === 'rejected') {
+      throw new Error('Your student registration was not approved. If you have questions, please contact the academy on WhatsApp.');
+    }
+
+    if (full_name && String(full_name).trim() && user.full_name === 'Student') {
+      user.full_name = String(full_name).trim();
+      setStore(KEYS.USERS, users);
+    }
+
+    const token = `token-${user.id}-${Date.now()}`;
+    storageService.setStoredToken(token);
+
+    const userProfile: UserProfile = {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      father_name: user.father_name,
+      whatsapp: user.whatsapp,
+      role: user.role,
+      status: user.status,
+      learning_level: user.learning_level || 'Book 1',
+      assigned_teacher_id: user.assigned_teacher_id,
+      can_approve: Boolean(user.can_approve),
+      can_admit: Boolean(user.can_admit),
+      created_at: user.created_at,
+    };
+
+    return {
+      message: 'Signed in successfully with Google!',
+      token,
+      user: userProfile,
+    };
+  },
+
+  async registerStudentByOwner(data: { full_name: string; whatsapp: string; email: string; learning_level?: string }): Promise<any> {
+    const { full_name, whatsapp, email, learning_level } = data;
+    if (!full_name || !whatsapp || !email) {
+      throw new Error('Student Name, WhatsApp Number, and Gmail Address are required.');
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanName = full_name.trim();
+    const cleanWa = whatsapp.trim();
+    const level = learning_level || 'Book 1';
+
+    const users = getStore<any[]>(KEYS.USERS, []);
+    if (users.some((u) => u.email?.toLowerCase().trim() === cleanEmail)) {
+      throw new Error(`A user with Gmail address "${cleanEmail}" already exists in the system.`);
+    }
+
+    const id = `student-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
+
+    const newStudent = {
+      id,
+      email: cleanEmail,
+      full_name: cleanName,
+      whatsapp: cleanWa,
+      role: 'student',
+      status: 'active',
+      learning_level: level,
+      can_approve: false,
+      can_admit: false,
+      created_at: now,
+      updated_at: now,
+    };
+
+    users.unshift(newStudent);
+    setStore(KEYS.USERS, users);
+
+    // Also admissions
+    const admissions = getStore<any[]>(KEYS.ADMISSIONS, []);
+    admissions.unshift({
+      id: `adm-${id}`,
+      full_name: cleanName,
+      father_name: 'N/A',
+      whatsapp: cleanWa,
+      email: cleanEmail,
+      learning_level: level,
+      status: 'approved',
+      notes: 'Registered by Owner for Google Sign-In',
+      created_at: now,
+      reviewed_at: now,
+    });
+    setStore(KEYS.ADMISSIONS, admissions);
+
+    return {
+      message: `Student "${cleanName}" registered successfully! They can now sign in using Google Sign-In with ${cleanEmail}.`,
+      student: newStudent,
+    };
+  },
+
+  async getStudentsOverview(): Promise<{ students: any[]; totalCurriculumTasks: number }> {
+    const users = getStore<any[]>(KEYS.USERS, []);
+    const submissions = getStore<any[]>(KEYS.SUBMISSIONS, []);
+    const tasks = getStore<any[]>(KEYS.TASKS, []);
+    const totalBook1 = tasks.filter((t) => t.book === 'Book 1' && t.status === 'active').length || 180;
+
+    const students = users
+      .filter((u) => u.role === 'student')
+      .map((s) => {
+        const studentSubs = submissions.filter((sub) => sub.student_id === s.id);
+        const approved = studentSubs.filter((sub) => sub.status === 'approved').length;
+        const pending = studentSubs.filter((sub) => sub.status === 'submitted').length;
+        const rejected = studentSubs.filter((sub) => sub.status === 'needs_correction' || sub.status === 'rejected').length;
+        const progressPercent = totalBook1 > 0 ? Math.min(100, Math.round((approved / totalBook1) * 100)) : 0;
+
+        return {
+          id: s.id,
+          full_name: s.full_name,
+          email: s.email,
+          whatsapp: s.whatsapp,
+          status: s.status,
+          learning_level: s.learning_level || 'Book 1',
+          created_at: s.created_at,
+          total_submissions: studentSubs.length,
+          approved_count: approved,
+          pending_count: pending,
+          rejected_count: rejected,
+          progress_percent: progressPercent,
+        };
+      });
+
+    return { students, totalCurriculumTasks: totalBook1 };
+  },
+
   // Auth: Get Current User
   async getMe(): Promise<{ user: UserProfile }> {
     const token = storageService.getStoredToken();

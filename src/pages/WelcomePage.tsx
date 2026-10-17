@@ -3,18 +3,16 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import {
   GraduationCap,
-  UserPlus,
   LogIn,
   MessageCircle,
   Phone,
-  CheckCircle2,
-  Sparkles,
-  BookOpen,
-  Users,
-  Video,
   AlertCircle,
   Clock,
-  Award,
+  Sparkles,
+  ShieldCheck,
+  CheckCircle2,
+  Lock,
+  ArrowRight,
 } from 'lucide-react';
 
 interface WelcomePageProps {
@@ -24,36 +22,22 @@ interface WelcomePageProps {
 export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const { login, settings } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'teacher'>('login');
+  // Mode: 'student' (Google/Gmail Sign-in) vs 'owner' (Owner & Staff Password Sign-in)
+  const [authMode, setAuthMode] = useState<'student' | 'owner'>('student');
 
-  // Login form state (empty by default for complete privacy and security)
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState('');
+  // Student Google / Gmail Sign-In state
+  const [studentGmail, setStudentGmail] = useState('');
+  const [studentName, setStudentName] = useState('');
+  const [studentLoading, setStudentLoading] = useState(false);
+  const [studentError, setStudentError] = useState('');
+  const [unregisteredNotice, setUnregisteredNotice] = useState(false);
   const [pendingNotice, setPendingNotice] = useState(false);
 
-  // Student Register form state
-  const [regName, setRegName] = useState('');
-  const [regFatherName, setRegFatherName] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regWhatsapp, setRegWhatsapp] = useState('');
-  const [regLevel, setRegLevel] = useState('Book 1');
-  const [regLoading, setRegLoading] = useState(false);
-  const [regSuccess, setRegSuccess] = useState<string | null>(null);
-  const [regError, setRegError] = useState('');
-
-  // Teacher Application state
-  const [teachName, setTeachName] = useState('');
-  const [teachEmail, setTeachEmail] = useState('');
-  const [teachWhatsapp, setTeachWhatsapp] = useState('');
-  const [teachSubjects, setTeachSubjects] = useState('');
-  const [teachIntro, setTeachIntro] = useState('');
-  const [teachExp, setTeachExp] = useState('');
-  const [teachLoading, setTeachLoading] = useState(false);
-  const [teachSuccess, setTeachSuccess] = useState<string | null>(null);
-  const [teachError, setTeachError] = useState('');
+  // Owner / Staff Password Sign-In state
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerPassword, setOwnerPassword] = useState('');
+  const [ownerLoading, setOwnerLoading] = useState(false);
+  const [ownerError, setOwnerError] = useState('');
 
   const dashboardTitle = settings?.dashboard_title || 'Farukh Businessman Wala ACCL Dashboard';
   const academyName = settings?.academy_name || 'Rehan School Tuition Academy';
@@ -62,226 +46,356 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const secondPhone = settings?.whatsapp_second || '03421336388';
   const secondWaLink = settings?.whatsapp_second_link || 'https://wa.me/923421336388';
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
+  // Handle Student Google / Gmail Sign-In (Password-Free)
+  const handleStudentGoogleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoginError('');
+    setStudentError('');
+    setUnregisteredNotice(false);
     setPendingNotice(false);
-    setLoginLoading(true);
+
+    if (!studentGmail.trim()) {
+      setStudentError('Please enter your Gmail address.');
+      return;
+    }
+
+    setStudentLoading(true);
+
+    try {
+      const res = await api.googleLogin({
+        email: studentGmail.trim().toLowerCase(),
+        full_name: studentName.trim() || undefined,
+      });
+
+      if (res.user?.status === 'pending' || res.isPending) {
+        setPendingNotice(true);
+        setStudentError('Your student account is pending activation by Farukh Businessman Wala.');
+        return;
+      }
+
+      if (res.user?.status === 'suspended' || res.user?.status === 'rejected') {
+        setStudentError('Your student account is not active. Please contact Farukh Businessman Wala on WhatsApp.');
+        return;
+      }
+
+      // Remember last signed in student Gmail on this laptop
+      try {
+        localStorage.setItem('accl_last_student_gmail', studentGmail.trim().toLowerCase());
+        if (studentName.trim()) {
+          localStorage.setItem('accl_last_student_name', studentName.trim());
+        }
+      } catch {}
+
+      login(res.token, res.user);
+      onSuccessLogin();
+    } catch (err: any) {
+      if (err?.data?.isUnregistered || err?.message?.toLowerCase().includes('not yet registered')) {
+        setUnregisteredNotice(true);
+      } else if (err?.data?.isPending || err?.message?.toLowerCase().includes('pending')) {
+        setPendingNotice(true);
+      }
+      setStudentError(err?.message || 'Failed to sign in. Please check your Gmail address.');
+    } finally {
+      setStudentLoading(false);
+    }
+  };
+
+  // Handle Owner / Staff Login (Email + Password)
+  const handleOwnerLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOwnerError('');
+    setOwnerLoading(true);
 
     try {
       const res = await api.login({
-        email: loginEmail.trim().toLowerCase(),
-        password: loginPassword,
+        email: ownerEmail.trim().toLowerCase(),
+        password: ownerPassword,
       });
 
-      if (res.isPending || res.user?.status === 'pending') {
-        // Do NOT log in pending students
-        setPendingNotice(true);
-        setLoginError('Your admission application is currently under review by FARUKH BUSINESSMAN WALA. Please allow up to 12 hours for the Owner to review and approve your application. Once approved, you will be able to sign in and access your student dashboard.');
-      } else if (res.user?.status === 'rejected' || res.user?.status === 'suspended') {
-        setLoginError('Your admission application was not approved or is suspended. Please contact the academy on WhatsApp.');
-      } else {
-        login(res.token, res.user);
-        onSuccessLogin();
+      if (res.user?.status === 'suspended') {
+        setOwnerError('Your account is suspended.');
+        return;
       }
+
+      login(res.token, res.user);
+      onSuccessLogin();
     } catch (err: any) {
-      if (err?.message?.toLowerCase().includes('pending') || err?.data?.isPending) {
-        setPendingNotice(true);
-      }
-      setLoginError(err.message || 'Login failed. Please check your credentials.');
+      setOwnerError(err?.message || 'Login failed. Please check your credentials.');
     } finally {
-      setLoginLoading(false);
+      setOwnerLoading(false);
     }
   };
 
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setRegError('');
-    setRegSuccess(null);
-    setRegLoading(true);
-
+  // Auto-fill last used student Gmail on this laptop for frictionless access
+  React.useEffect(() => {
     try {
-      const res = await api.register({
-        full_name: regName.trim(),
-        father_name: regFatherName.trim(),
-        email: regEmail.trim().toLowerCase(),
-        password: regPassword,
-        whatsapp: regWhatsapp.trim(),
-        learning_level: regLevel,
-      });
-
-      // Show prominent success notification stating review by FARUKH BUSINESSMAN WALA and 12 hours wait
-      setRegSuccess(res.message || 'Your admission application has been submitted successfully to FARUKH BUSINESSMAN WALA for review. Please wait patiently up to 12 hours for the Owner\'s approval. Once approved, you will be able to sign in.');
-      setRegName('');
-      setRegFatherName('');
-      setRegEmail('');
-      setRegPassword('');
-      setRegWhatsapp('');
-    } catch (err: any) {
-      setRegError(err.message || 'Registration failed.');
-    } finally {
-      setRegLoading(false);
-    }
-  };
-
-  const handleTeacherSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTeachError('');
-    setTeachSuccess(null);
-    setTeachLoading(true);
-
-    try {
-      const res = await api.submitTeacherApplication({
-        full_name: teachName.trim(),
-        email: teachEmail.trim().toLowerCase(),
-        whatsapp: teachWhatsapp.trim(),
-        subjects: teachSubjects.trim(),
-        introduction: teachIntro.trim(),
-        experience: teachExp.trim(),
-      });
-      setTeachSuccess(res.message || 'Application submitted successfully!');
-      setTeachName('');
-      setTeachEmail('');
-      setTeachWhatsapp('');
-      setTeachSubjects('');
-      setTeachIntro('');
-      setTeachExp('');
-    } catch (err: any) {
-      setTeachError(err.message || 'Application failed.');
-    } finally {
-      setTeachLoading(false);
-    }
-  };
+      const savedGmail = localStorage.getItem('accl_last_student_gmail');
+      const savedName = localStorage.getItem('accl_last_student_name');
+      if (savedGmail) setStudentGmail(savedGmail);
+      if (savedName) setStudentName(savedName);
+    } catch {}
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-between">
-      {/* Top Banner */}
-      <div className="bg-[#0B3A79] text-white py-8 px-4 sm:px-8 border-b border-blue-900 shadow-md">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-4 text-center md:text-left">
-            <div className="w-16 h-16 rounded-2xl bg-white/10 p-2 border border-white/20 flex items-center justify-center shrink-0 shadow-inner">
-              <GraduationCap className="w-10 h-10 text-amber-300" />
+      {/* Top Bar Header */}
+      <div className="bg-[#0B3A79] text-white py-6 px-4 sm:px-8 border-b border-blue-900 shadow-md">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5 text-center md:text-left">
+            <div className="w-13 h-13 rounded-xl bg-white/10 p-2 border border-white/20 flex items-center justify-center shrink-0 shadow-inner">
+              <GraduationCap className="w-8 h-8 text-amber-300" />
             </div>
             <div>
-              <span className="text-xs uppercase font-bold tracking-widest text-blue-200">
-                Official Portal
+              <span className="text-[10px] uppercase font-bold tracking-widest text-blue-200">
+                Official Student & Curriculum Portal
               </span>
-              <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
                 {dashboardTitle}
               </h1>
-              <p className="text-sm font-semibold text-blue-200 mt-0.5">
+              <p className="text-xs font-medium text-blue-200">
                 {academyName}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <a
               href={primaryWaLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors"
             >
-              <MessageCircle className="w-4 h-4" />
+              <MessageCircle className="w-3.5 h-3.5" />
               <span>WhatsApp: {primaryPhone}</span>
             </a>
             <a
               href={secondWaLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700/90 hover:bg-emerald-600 text-white text-xs font-bold shadow-md transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-700/80 hover:bg-emerald-600 text-white text-xs font-bold shadow-xs transition-colors"
             >
               <Phone className="w-3.5 h-3.5" />
-              <span>WhatsApp: {secondPhone}</span>
+              <span>{secondPhone}</span>
             </a>
           </div>
         </div>
       </div>
 
-      {/* Main Container */}
-      <main className="max-w-4xl w-full mx-auto p-4 sm:p-6 my-6">
-        {/* Navigation Selector Tabs */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
-          <button
-            onClick={() => setActiveTab('login')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
-              activeTab === 'login'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <LogIn className="w-4 h-4" />
-            <span>Sign In</span>
-          </button>
+      {/* Main Login Viewport */}
+      <main className="max-w-md w-full mx-auto p-4 sm:p-6 my-auto">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-8">
+          {/* Role Mode Switcher Tabs */}
+          <div className="flex rounded-xl bg-slate-100 p-1 mb-6 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('student');
+                setStudentError('');
+                setUnregisteredNotice(false);
+              }}
+              className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                authMode === 'student'
+                  ? 'bg-white text-blue-700 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <GraduationCap className="w-4 h-4 text-blue-600" />
+              <span>Student Sign In</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('register')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
-              activeTab === 'register'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Student Registration</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('owner');
+                setOwnerError('');
+              }}
+              className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                authMode === 'owner'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-indigo-600" />
+              <span>Owner & Staff</span>
+            </button>
+          </div>
 
-          <button
-            onClick={() => setActiveTab('teacher')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
-              activeTab === 'teacher'
-                ? 'bg-emerald-600 text-white shadow-md'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Become a Teacher</span>
-          </button>
-        </div>
-
-        {/* Form Cards */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-6 sm:p-8">
-          {/* TAB 1: SIGN IN */}
-          {activeTab === 'login' && (
-            <div className="max-w-md mx-auto">
+          {/* ========================================================= */}
+          {/* TAB 1: STUDENT GOOGLE / GMAIL SIGN IN                      */}
+          {/* ========================================================= */}
+          {authMode === 'student' && (
+            <div>
               <div className="text-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Sign in to your Account</h2>
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto mb-3">
+                  {/* Google SVG G-Logo */}
+                  <svg className="w-6 h-6" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                </div>
+                <h2 className="text-lg font-bold text-slate-900">Sign in with Google</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Access your ACCL tasks, attendance tracker, and submissions
+                  Access your daily ACCL tasks, attendance tracker, and submissions
                 </p>
               </div>
 
-              {loginError && (
+              {/* Unregistered Notice Banner */}
+              {unregisteredNotice && (
+                <div className="p-4 mb-4 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-amber-900 mb-1">
+                        Gmail Not Yet Registered
+                      </h4>
+                      <p className="leading-relaxed">
+                        This Gmail address is not yet registered by the Owner (<strong>Farukh Businessman Wala</strong>). Students must be registered by the Owner first.
+                      </p>
+                      <a
+                        href={`${primaryWaLink}?text=${encodeURIComponent(`Hello Farukh Businessman Wala, please register my student Gmail account: ${studentGmail}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 mt-2.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors text-[11px]"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>Request Owner on WhatsApp to Register Me</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pending Approval Notice */}
+              {pendingNotice && (
+                <div className="p-4 mb-4 rounded-xl bg-blue-50 border border-blue-300 text-xs text-blue-950">
+                  <div className="flex items-start gap-2">
+                    <Clock className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-blue-900 mb-1">
+                        Account Under Review
+                      </h4>
+                      <p className="leading-relaxed">
+                        Your admission is currently under review by <strong>Farukh Businessman Wala</strong>. Please allow up to 12 hours for the Owner to activate your access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Alert */}
+              {studentError && !unregisteredNotice && !pendingNotice && (
                 <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                  <span>{loginError}</span>
+                  <span>{studentError}</span>
                 </div>
               )}
 
-              {pendingNotice && (
-                <div className="p-4 mb-4 rounded-xl bg-amber-50 border-2 border-amber-300 text-xs text-amber-950">
-                  <h4 className="font-bold flex items-center gap-1.5 text-amber-900 mb-1">
-                    <Clock className="w-4 h-4 text-amber-600" />
-                    Admission Application Under Review
-                  </h4>
-                  <p className="leading-relaxed">
-                    Your admission application is currently under review by <strong>FARUKH BUSINESSMAN WALA</strong>. Please allow up to <strong>12 hours</strong> for the Owner to review and approve your application. Once approved, you will be able to sign in and access your student dashboard and daily tasks.
-                  </p>
-                </div>
-              )}
-
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
+              <form onSubmit={handleStudentGoogleSignIn} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Email / Gmail Address
+                    Your Gmail Address
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      required
+                      placeholder="student@gmail.com"
+                      value={studentGmail}
+                      onChange={(e) => setStudentGmail(e.target.value)}
+                      className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Enter the Gmail address registered with Farukh Businessman Wala
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Full Name <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter your student name"
+                    value={studentName}
+                    onChange={(e) => setStudentName(e.target.value)}
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
+                  />
+                </div>
+
+                {/* Primary Google Sign In Action Button */}
+                <button
+                  type="submit"
+                  disabled={studentLoading}
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {studentLoading ? (
+                    <span>Signing in securely...</span>
+                  ) : (
+                    <>
+                      <span>Continue with Google Sign-In</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              <div className="mt-5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500 space-y-1">
+                <p className="font-semibold text-slate-700">Permanent Laptop Session</p>
+                <p>
+                  Once signed in, your account and task submissions remain permanently saved on this device. No need to re-enter your password!
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 2: OWNER & STAFF LOGIN WITH PASSWORD                   */}
+          {/* ========================================================= */}
+          {authMode === 'owner' && (
+            <div>
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-3">
+                  <ShieldCheck className="w-6 h-6 text-indigo-700" />
+                </div>
+                <h2 className="text-lg font-bold text-slate-900">Owner & Staff Login</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Farukh Businessman Wala Administration Portal
+                </p>
+              </div>
+
+              {ownerError && (
+                <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>{ownerError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleOwnerLoginSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Owner Email Address
                   </label>
                   <input
                     type="email"
                     required
-                    placeholder="Enter your email address"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter owner email"
+                    value={ownerEmail}
+                    onChange={(e) => setOwnerEmail(e.target.value)}
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
@@ -292,336 +406,44 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                   <input
                     type="password"
                     required
-                    placeholder="Enter your password"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter owner password"
+                    value={ownerPassword}
+                    onChange={(e) => setOwnerPassword(e.target.value)}
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  disabled={loginLoading}
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer"
+                  disabled={ownerLoading}
+                  className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
                 >
-                  {loginLoading ? 'Signing in...' : 'Sign In'}
+                  <Lock className="w-4 h-4" />
+                  <span>{ownerLoading ? 'Verifying...' : 'Sign in as Owner'}</span>
                 </button>
               </form>
 
-              <div className="mt-6 pt-4 border-t border-slate-100 text-center text-xs text-slate-500">
-                <span>New student? </span>
+              <div className="mt-4 text-center">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('register')}
-                  className="font-bold text-blue-600 hover:underline cursor-pointer"
+                  onClick={() => setAuthMode('student')}
+                  className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer"
                 >
-                  Register Here
+                  ← Back to Student Google Sign-In
                 </button>
               </div>
             </div>
           )}
-
-          {/* TAB 2: STUDENT REGISTRATION */}
-          {activeTab === 'register' && (
-            <div className="max-w-lg mx-auto">
-              <div className="text-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Student Admission & Registration</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Submit your admission request. Once approved by the Academy Owner, you can sign in to complete your daily tasks.
-                </p>
-              </div>
-
-              {regSuccess && (
-                <div className="p-5 mb-6 rounded-2xl bg-emerald-50 border-2 border-emerald-400 text-emerald-950 text-xs shadow-md">
-                  <div className="flex items-center gap-2 font-black text-sm text-emerald-900 mb-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <span>Admission Application Submitted Successfully!</span>
-                  </div>
-                  <p className="mt-1 text-emerald-900 font-medium leading-relaxed">
-                    Your admission application has been submitted to <strong>FARUKH BUSINESSMAN WALA</strong> for review. Please wait patiently up to <strong>12 hours</strong> for the Owner to review and approve your application.
-                  </p>
-                  <p className="mt-2 text-emerald-800 text-[11px]">
-                    Once approved by the Owner, you will be able to sign in with your email and password to access your daily tasks and social media assignments.
-                  </p>
-                  <div className="mt-4">
-                    <button
-                      onClick={() => setActiveTab('login')}
-                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors cursor-pointer text-xs shadow-xs"
-                    >
-                      Go to Sign In
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {regError && (
-                <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                  <span>{regError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Student Full Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Muhammad Farukh"
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Father's Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Father's full name"
-                      value={regFatherName}
-                      onChange={(e) => setRegFatherName(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Gmail / Email Address *
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="student@gmail.com"
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      WhatsApp / Mobile Number *
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="03XXXXXXXXX"
-                      value={regWhatsapp}
-                      onChange={(e) => setRegWhatsapp(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Create Password *
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      minLength={6}
-                      placeholder="Minimum 6 characters"
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Enrolling In
-                    </label>
-                    <select
-                      value={regLevel}
-                      onChange={(e) => setRegLevel(e.target.value)}
-                      className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white"
-                    >
-                      <option value="Book 1">ACCL Book 1 (Days 1–180)</option>
-                      <option value="Book 2">ACCL Book 2 (Days 1–41)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={regLoading}
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  {regLoading ? 'Submitting Registration...' : 'Submit Student Registration'}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* TAB 3: BECOME A TEACHER */}
-          {activeTab === 'teacher' && (
-            <div className="max-w-lg mx-auto">
-              <div className="text-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Become an ACCL Teacher / Mentor</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Apply to facilitate students, review task submissions, and guide students through English and coding milestones. All teacher requests are approved by the Owner.
-                </p>
-              </div>
-
-              {teachSuccess ? (
-                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs">
-                  <div className="flex items-center gap-2 font-bold mb-1">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    <span>Teacher Application Submitted!</span>
-                  </div>
-                  <p className="mt-1 text-emerald-800 leading-relaxed">{teachSuccess}</p>
-                  <p className="mt-2 text-slate-600 text-[11px]">
-                    The Academy Owner will review your credentials and contact you on WhatsApp.
-                  </p>
-                </div>
-              ) : (
-                <form onSubmit={handleTeacherSubmit} className="space-y-4">
-                  {teachError && (
-                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                      <span>{teachError}</span>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Full Name *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Sir Asad / Miss Sana"
-                        value={teachName}
-                        onChange={(e) => setTeachName(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Email Address *
-                      </label>
-                      <input
-                        type="email"
-                        required
-                        placeholder="teacher@example.com"
-                        value={teachEmail}
-                        onChange={(e) => setTeachEmail(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        WhatsApp Number *
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        placeholder="03XXXXXXXXX"
-                        value={teachWhatsapp}
-                        onChange={(e) => setTeachWhatsapp(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Subjects / Skills *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. English, Coding, Call Annie"
-                        value={teachSubjects}
-                        onChange={(e) => setTeachSubjects(e.target.value)}
-                        className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Short Introduction & Experience *
-                    </label>
-                    <textarea
-                      rows={3}
-                      required
-                      placeholder="Tell us about your background, teaching experience, and why you wish to facilitate students..."
-                      value={teachIntro}
-                      onChange={(e) => setTeachIntro(e.target.value)}
-                      className="w-full text-xs p-3 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={teachLoading}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    {teachLoading ? 'Submitting Application...' : 'Submit Teacher Application'}
-                  </button>
-                </form>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Feature Highlights Section */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-8">
-          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 shrink-0">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-900">180 ACCL Days</h4>
-              <p className="text-[11px] text-slate-500">Structured lessons & submissions</p>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
-              <Clock className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-900">Live Attendance</h4>
-              <p className="text-[11px] text-slate-500">Asia/Karachi check-in tracking</p>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
-              <Award className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-900">Mentor Reviews</h4>
-              <p className="text-[11px] text-slate-500">Approvals & feedback</p>
-            </div>
-          </div>
         </div>
       </main>
 
-      {/* Footer (Clean & Secure - No personal owner credentials exposed) */}
-      <footer className="bg-slate-900 text-slate-400 py-6 px-4 text-center text-xs border-t border-slate-800">
-        <p className="font-semibold text-slate-200">
-          {academyName}
+      {/* Footer */}
+      <footer className="py-4 text-center text-xs text-slate-400 border-t border-slate-200 bg-white">
+        <p className="font-medium text-slate-600">
+          Farukh Businessman Wala ACCL Dashboard &copy; {new Date().getFullYear()}
         </p>
-        <p className="text-[11px] text-slate-500 mt-1">
-          WhatsApp: {primaryPhone} / {secondPhone}
+        <p className="text-[11px] text-slate-400 mt-0.5">
+          Rehan School Tuition Academy &bull; Karachi Standard Time (Asia/Karachi)
         </p>
       </footer>
     </div>

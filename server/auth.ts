@@ -32,7 +32,7 @@ export function createToken(userId: string, role: UserRole): string {
   const payload = {
     userId,
     role,
-    exp: Date.now() + 1000 * 60 * 60 * 24 * 7, // 7 days
+    exp: Date.now() + 1000 * 60 * 60 * 24 * 90, // 90 days for permanent sessions on laptop
   };
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = crypto.createHmac('sha256', JWT_SECRET).update(data).digest('base64url');

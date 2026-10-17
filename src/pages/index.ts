@@ -8,3 +8,4 @@ export { ScoreboardPage, default as DefaultScoreboardPage } from './ScoreboardPa
 export { FeedbackPage, default as DefaultFeedbackPage } from './FeedbackPage';
 export { AttendanceHistoryPage, default as DefaultAttendanceHistoryPage } from './AttendanceHistoryPage';
 export { AdminSettingsPage, default as DefaultAdminSettingsPage } from './AdminSettingsPage';
+export { OwnerDashboardPage } from './OwnerDashboardPage';

@@ -19,6 +19,11 @@ import {
   Plus,
   PlusCircle,
   DownloadCloud,
+  Trophy,
+  Award,
+  GraduationCap,
+  TrendingUp,
+  User,
 } from 'lucide-react';
 import type { TaskItem, SubmissionSummary } from '../types';
 
@@ -116,18 +121,44 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     }
   };
 
-  // Filter tasks based on statusFilterTab if passed from NavigationTabs (pending, approved, rejected)
+  const [localStatusFilter, setLocalStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>(
+    (statusFilterTab as any) || 'all'
+  );
+
+  useEffect(() => {
+    if (statusFilterTab) {
+      setLocalStatusFilter(statusFilterTab as any);
+    }
+  }, [statusFilterTab]);
+
+  // Filter tasks based on statusFilterTab or localStatusFilter (pending, approved, rejected)
   const filteredTasks = useMemo(() => {
-    if (!statusFilterTab || statusFilterTab === 'all') return tasks;
+    const filterToUse = localStatusFilter !== 'all' ? localStatusFilter : (statusFilterTab || 'all');
+    if (filterToUse === 'all') return tasks;
 
     return tasks.filter((t) => {
       const sub = t.submission;
-      if (statusFilterTab === 'pending') return sub?.status === 'submitted';
-      if (statusFilterTab === 'approved') return sub?.status === 'approved';
-      if (statusFilterTab === 'rejected') return sub?.status === 'needs_correction' || sub?.status === 'rejected';
+      if (filterToUse === 'pending') return sub?.status === 'submitted';
+      if (filterToUse === 'approved') return sub?.status === 'approved';
+      if (filterToUse === 'rejected') return sub?.status === 'needs_correction' || sub?.status === 'rejected';
       return true;
     });
-  }, [tasks, statusFilterTab]);
+  }, [tasks, statusFilterTab, localStatusFilter]);
+
+  const approvedCount = summary?.approvedCount || 0;
+  const pendingCount = summary?.pendingCount || 0;
+  const needsCorrectionCount = summary?.needsCorrectionCount || 0;
+  const totalTasksCount = summary?.totalTasks || 180;
+  const totalSubmissions = approvedCount + pendingCount + needsCorrectionCount;
+  const progressPercent = summary?.progressPercent || 0;
+
+  const badges = [
+    { id: 'enrolled', title: 'Portal Scholar', desc: 'Google Account Active', icon: GraduationCap, unlocked: true },
+    { id: 'first_sub', title: 'First Submission', desc: '1+ Task Submitted', icon: Sparkles, unlocked: totalSubmissions >= 1 },
+    { id: 'rising_star', title: 'Rising Achiever', desc: '5+ Tasks Approved', icon: Award, unlocked: approvedCount >= 5 },
+    { id: 'social_star', title: 'Social Media Star', desc: '15+ Tasks Approved', icon: Trophy, unlocked: approvedCount >= 15 },
+    { id: 'champion', title: 'Curriculum Master', desc: '50+ Tasks Approved', icon: CheckCircle2, unlocked: approvedCount >= 50 },
+  ];
 
   return (
     <div className="space-y-6">
@@ -146,6 +177,161 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </button>
         </div>
       )}
+
+      {/* Student Achievement & Progress Hub */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-7">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-black uppercase tracking-wider">
+                Student Achievement Hub
+              </span>
+              <span className="text-xs text-slate-400">&bull; {selectedBook}</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+              Welcome back, {user?.full_name || 'Student'}!
+            </h2>
+            <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+              <span>{user?.email}</span>
+              <span aria-hidden="true">&bull;</span>
+              <span className="text-emerald-700 font-semibold">Active Student Account</span>
+              <span aria-hidden="true">&bull;</span>
+              <span className="font-mono tabular-nums">{progressPercent}% Completed</span>
+            </div>
+          </div>
+
+          {/* Overall Progress Percentage Circle/Bar Indicator */}
+          <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200 shrink-0">
+            <div className="text-right">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Overall Progress</span>
+              <span className="text-xl font-black text-blue-700 font-mono tabular-nums">
+                {approvedCount} / {totalTasksCount}
+              </span>
+            </div>
+            <div className="w-12 h-12 rounded-full border-4 border-blue-600 border-r-slate-200 flex items-center justify-center font-black text-xs text-blue-900 font-mono">
+              {progressPercent}%
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="py-4">
+          <div className="flex justify-between text-xs text-slate-600 mb-1.5 font-medium">
+            <span>Curriculum Completion ({selectedBook})</span>
+            <span className="font-mono font-bold text-blue-700">{approvedCount} of {totalTasksCount} Approved Tasks ({progressPercent}%)</span>
+          </div>
+          <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+            <div
+              className="bg-blue-600 h-full rounded-full transition-all duration-700"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+
+        {/* 4 Status Metric Counters & Quick Filter */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 pb-4">
+          <button
+            onClick={() => setLocalStatusFilter('approved')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+              localStatusFilter === 'approved'
+                ? 'bg-emerald-50 border-emerald-400 shadow-xs'
+                : 'bg-slate-50/50 hover:bg-slate-100 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Approved Tasks</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            </div>
+            <p className="text-2xl font-black text-emerald-950 mt-1 font-mono tabular-nums">{approvedCount}</p>
+            <p className="text-[10px] text-emerald-700 mt-0.5">Verified by Owner</p>
+          </button>
+
+          <button
+            onClick={() => setLocalStatusFilter('pending')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+              localStatusFilter === 'pending'
+                ? 'bg-amber-50 border-amber-400 shadow-xs'
+                : 'bg-slate-50/50 hover:bg-slate-100 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Pending Review</span>
+              <Clock className="w-4 h-4 text-amber-600" />
+            </div>
+            <p className="text-2xl font-black text-amber-950 mt-1 font-mono tabular-nums">{pendingCount}</p>
+            <p className="text-[10px] text-amber-700 mt-0.5">Under Owner Review</p>
+          </button>
+
+          <button
+            onClick={() => setLocalStatusFilter('rejected')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+              localStatusFilter === 'rejected'
+                ? 'bg-red-50 border-red-400 shadow-xs'
+                : 'bg-slate-50/50 hover:bg-slate-100 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-red-800 uppercase tracking-wider">Needs Correction</span>
+              <AlertCircle className="w-4 h-4 text-red-600" />
+            </div>
+            <p className="text-2xl font-black text-red-950 mt-1 font-mono tabular-nums">{needsCorrectionCount}</p>
+            <p className="text-[10px] text-red-700 mt-0.5">Click to view & fix</p>
+          </button>
+
+          <button
+            onClick={() => setLocalStatusFilter('all')}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+              localStatusFilter === 'all'
+                ? 'bg-blue-50 border-blue-400 shadow-xs'
+                : 'bg-slate-50/50 hover:bg-slate-100 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">All Curriculum</span>
+              <BookOpen className="w-4 h-4 text-blue-600" />
+            </div>
+            <p className="text-2xl font-black text-slate-900 mt-1 font-mono tabular-nums">{totalTasksCount}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">Day 1 to Day 180</p>
+          </button>
+        </div>
+
+        {/* Achievement Badges Showcase */}
+        <div className="pt-4 border-t border-slate-100">
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <Trophy className="w-3.5 h-3.5 text-amber-500" />
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Earned Badges & Milestones
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+            {badges.map((b) => {
+              const Icon = b.icon;
+              return (
+                <div
+                  key={b.id}
+                  className={`p-2.5 rounded-xl border flex items-center gap-2.5 transition-all ${
+                    b.unlocked
+                      ? 'bg-amber-50/60 border-amber-200 text-amber-950'
+                      : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
+                  }`}
+                >
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      b.unlocked ? 'bg-amber-400 text-slate-950 font-black' : 'bg-slate-200 text-slate-400'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold truncate leading-snug">{b.title}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{b.desc}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       {/* Owner / Admin Management Banner */}
       {(isOwner || isAdmin) && (

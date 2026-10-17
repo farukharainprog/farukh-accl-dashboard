@@ -268,6 +268,87 @@ authRouter.post('/login', (req, res: Response) => {
   }
 });
 
+// Google / Gmail Sign-In (no password required for authorized students and owner)
+authRouter.post('/google-login', (req, res: Response) => {
+  try {
+    ensureDatabaseInitialized();
+    const { email, full_name } = req.body || {};
+
+    if (!email) {
+      res.status(400).json({ error: 'Gmail address is required.' });
+      return;
+    }
+
+    const cleanEmail = String(email).toLowerCase().trim();
+    const user = queryOne<User & { assigned_teacher_name?: string }>(`
+      SELECT u.*, t.full_name as assigned_teacher_name
+      FROM users u
+      LEFT JOIN users t ON u.assigned_teacher_id = t.id
+      WHERE u.email = ?
+    `, cleanEmail);
+
+    if (!user) {
+      res.status(404).json({
+        error: `This Gmail address (${cleanEmail}) is not yet registered in the portal. Students must be registered by Farukh Businessman Wala in the Owner Dashboard first. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083) to register your student account.`,
+        isUnregistered: true,
+      });
+      return;
+    }
+
+    if (user.status === 'suspended') {
+      res.status(403).json({ error: 'Your student account is suspended. Please contact the academy administration.' });
+      return;
+    }
+
+    if (user.status === 'pending') {
+      res.status(403).json({
+        error: 'Your admission is currently pending review by Farukh Businessman Wala. Please allow up to 12 hours for activation.',
+        isPending: true,
+      });
+      return;
+    }
+
+    if (user.status === 'rejected') {
+      res.status(403).json({
+        error: 'Your student registration was not approved. If you have questions, please contact the academy on WhatsApp.',
+      });
+      return;
+    }
+
+    // If student name is provided from Google and DB was generic, update it
+    if (full_name && String(full_name).trim() && user.full_name === 'Student') {
+      execute('UPDATE users SET full_name = ? WHERE id = ?', String(full_name).trim(), user.id);
+      user.full_name = String(full_name).trim();
+    }
+
+    const token = createToken(user.id, user.role);
+    logAudit(user.id, user.full_name, user.role, 'GOOGLE_SIGN_IN', `Signed in with Gmail: ${user.email}`);
+
+    res.json({
+      message: 'Signed in successfully with Google!',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        full_name: user.full_name,
+        father_name: user.father_name,
+        whatsapp: user.whatsapp,
+        role: user.role,
+        status: user.status,
+        learning_level: user.learning_level || 'Book 1',
+        assigned_teacher_id: user.assigned_teacher_id,
+        assigned_teacher_name: user.assigned_teacher_name,
+        can_approve: Boolean(user.can_approve),
+        can_admit: Boolean(user.can_admit),
+        created_at: user.created_at,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Google Login Error]:', error);
+    res.status(500).json({ error: error.message || 'Google sign-in failed.' });
+  }
+});
+
 // Get current profile
 authRouter.get('/me', authMiddleware, (req: AuthRequest, res: Response) => {
   try {

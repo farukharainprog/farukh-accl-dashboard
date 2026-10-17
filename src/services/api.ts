@@ -151,6 +151,23 @@ export const api = {
     );
   },
 
+  googleLogin: async (data: { email: string; full_name?: string }): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<any>('/auth/google-login', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        if (res.token) setStoredToken(res.token);
+        if (res.user) {
+          storageService.saveUserLocally(res.user, 'google-oauth-session');
+        }
+        return res;
+      },
+      () => storageService.googleLogin(data)
+    );
+  },
+
   getMe: async (): Promise<{ user: UserProfile }> => {
     return syncRequest(
       () => serverRequest<{ user: UserProfile }>('/auth/me'),
@@ -392,7 +409,7 @@ export const api = {
         } catch {}
         return res;
       },
-      () => storageService.deleteAdmissionLocally(id)
+      async () => storageService.deleteAdmissionLocally(id)
     );
   },
 
@@ -405,7 +422,7 @@ export const api = {
         } catch {}
         return res;
       },
-      () => storageService.cleanAllAdmissionsLocally()
+      async () => storageService.cleanAllAdmissionsLocally()
     );
   },
 
@@ -461,6 +478,29 @@ export const api = {
         return { users: Array.from(map.values()) };
       },
       () => storageService.getUsers(params)
+    );
+  },
+
+  registerStudentByOwner: async (data: { full_name: string; whatsapp: string; email: string; learning_level?: string }): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<any>('/users/register-student', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        if (res.student) {
+          storageService.saveUserLocally(res.student, 'google-oauth-session');
+        }
+        return res;
+      },
+      () => storageService.registerStudentByOwner(data)
+    );
+  },
+
+  getStudentsOverview: async (): Promise<{ students: any[]; totalCurriculumTasks: number }> => {
+    return syncRequest(
+      () => serverRequest<{ students: any[]; totalCurriculumTasks: number }>('/users/students-overview'),
+      () => storageService.getStudentsOverview()
     );
   },
 

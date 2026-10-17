@@ -18,6 +18,7 @@ import {
   FeedbackPage,
   AttendanceHistoryPage,
   AdminSettingsPage,
+  OwnerDashboardPage,
 } from './pages';
 import {
   Clock,
@@ -30,9 +31,18 @@ import {
 } from 'lucide-react';
 
 const DashboardContent: React.FC = () => {
-  const { user, token, isLoading, isPending, settings } = useAuth();
-  const [activeTab, setActiveTab] = useState<NavTab>('all_tasks');
+  const { user, token, isLoading, isPending, settings, isOwner, isAdmin } = useAuth();
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    return (user?.role === 'owner' || user?.role === 'admin') ? 'owner_dashboard' : 'all_tasks';
+  });
   const [showProfile, setShowProfile] = useState<boolean>(false);
+
+  // If user role changes, ensure active tab is appropriate
+  React.useEffect(() => {
+    if ((user?.role === 'owner' || user?.role === 'admin') && activeTab === 'all_tasks') {
+      setActiveTab('owner_dashboard');
+    }
+  }, [user?.role]);
 
   if (isLoading) {
     return (
@@ -104,6 +114,8 @@ const DashboardContent: React.FC = () => {
           )}
 
           {/* VIEW ROUTING */}
+          {activeTab === 'owner_dashboard' && <OwnerDashboardPage />}
+
           {activeTab === 'all_tasks' && (
             <StudentDashboard
               initialBook="Book 1"

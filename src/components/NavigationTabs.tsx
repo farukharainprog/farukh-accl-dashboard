@@ -18,6 +18,7 @@ import {
 import type { SubmissionSummary } from '../types';
 
 export type NavTab =
+  | 'owner_dashboard'
   | 'all_tasks'
   | 'book_1'
   | 'book_2'
@@ -62,6 +63,17 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
   return (
     <div className="w-full bg-slate-100/80 border-b border-slate-200 py-2 px-4 sm:px-8 overflow-x-auto scrollbar-thin">
       <div className="max-w-7xl mx-auto flex items-center gap-1.5 min-w-max">
+        {/* Owner Dashboard Primary Tab */}
+        {(isOwner || isAdmin) && (
+          <button
+            onClick={() => onTabChange('owner_dashboard')}
+            className={btnClass('owner_dashboard', 'bg-indigo-900 text-amber-300 font-bold shadow-md')}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
+            <span>Owner Dashboard</span>
+          </button>
+        )}
+
         {/* All Tasks */}
         <button onClick={() => onTabChange('all_tasks')} className={btnClass('all_tasks')}>
           <ListFilter className="w-3.5 h-3.5" />
