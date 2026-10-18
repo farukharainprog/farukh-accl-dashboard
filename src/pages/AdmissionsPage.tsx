@@ -198,28 +198,28 @@ export const AdmissionsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Action Notification Banner */}
+      {/* Action Notification Alert */}
       {actionNotice && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+          className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${
             actionNotice.type === 'success'
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-              : 'bg-red-50 border-red-300 text-red-900'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : 'bg-slate-100 border-slate-300 text-slate-900'
           }`}
         >
           <div className="flex items-center gap-2">
             {actionNotice.type === 'success' ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             ) : (
-              <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+              <AlertCircle className="w-5 h-5 text-slate-700 shrink-0" />
             )}
             <span>{actionNotice.text}</span>
           </div>
           <button
             onClick={() => setActionNotice(null)}
-            className="text-slate-400 hover:text-slate-600 text-xs px-2 py-1 rounded-md"
+            className="text-slate-400 hover:text-slate-600 text-xs px-2 py-1 rounded-md cursor-pointer"
           >
-            Dismiss
+            ✕
           </button>
         </div>
       )}

@@ -177,15 +177,43 @@ usersRouter.post('/register-student', authMiddleware, requireRole('owner', 'admi
     const cleanWa = String(whatsapp).trim();
 
     // Check duplicate email
-    const existing = queryOne<{ id: string; role: string }>('SELECT id, role FROM users WHERE email = ?', cleanEmail);
+    const existing = queryOne<{ id: string; role: string }>('SELECT id, role FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))', cleanEmail);
     if (existing) {
+      if (existing.role === 'student') {
+        // Update student details and make sure status is active
+        execute(`
+          UPDATE users
+          SET full_name = ?, whatsapp = ?, status = 'active', learning_level = ?, updated_at = ?
+          WHERE id = ?
+        `, cleanName, cleanWa, learning_level || 'Book 1', new Date().toISOString(), existing.id);
+
+        execute(`
+          UPDATE student_admissions
+          SET full_name = ?, whatsapp = ?, status = 'approved', reviewed_at = ?
+          WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))
+        `, cleanName, cleanWa, new Date().toISOString(), cleanEmail);
+
+        res.status(200).json({
+          message: `Student "${cleanName}" was updated and activated successfully! They can now sign in using Google Sign-In with ${cleanEmail}.`,
+          student: {
+            id: existing.id,
+            full_name: cleanName,
+            email: cleanEmail,
+            whatsapp: cleanWa,
+            role: 'student',
+            status: 'active',
+            learning_level: learning_level || 'Book 1',
+          },
+        });
+        return;
+      }
       res.status(400).json({ error: `A user with Gmail address "${cleanEmail}" already exists in the system.` });
       return;
     }
 
     const id = crypto.randomUUID();
-    const dummyPassword = crypto.randomBytes(32).toString('hex');
-    const { salt, hash } = hashPassword(dummyPassword);
+    const initialPassword = 'acclStudent@2026';
+    const { salt, hash } = hashPassword(initialPassword);
     const now = new Date().toISOString();
     const level = learning_level || 'Book 1';
 
@@ -208,10 +236,10 @@ usersRouter.post('/register-student', authMiddleware, requireRole('owner', 'admi
       now
     );
 
-    // Also insert record into student_admissions with status 'approved'
+    // Also insert or update record into student_admissions with status 'approved'
     const admId = crypto.randomUUID();
     execute(`
-      INSERT INTO student_admissions (id, full_name, father_name, whatsapp, email, learning_level, registered_by_id, notes, status, created_at, reviewed_at)
+      INSERT OR REPLACE INTO student_admissions (id, full_name, father_name, whatsapp, email, learning_level, registered_by_id, notes, status, created_at, reviewed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?)
     `,
       admId,
@@ -312,6 +340,120 @@ usersRouter.get('/students-overview', authMiddleware, requireRole('owner', 'admi
   }
 });
 
+// Owner/Admin: Direct Teacher Registration
+usersRouter.post('/register-teacher', authMiddleware, requireRole('owner', 'admin'), (req: AuthRequest, res: Response) => {
+  try {
+    const actor = req.user!;
+    const { full_name, email, whatsapp, subjects, password, can_approve } = req.body || {};
+
+    if (!full_name || !email) {
+      res.status(400).json({ error: 'Teacher Full Name and Email address are required.' });
+      return;
+    }
+
+    const cleanEmail = String(email).toLowerCase().trim();
+    const cleanName = String(full_name).trim();
+    const cleanWa = whatsapp ? String(whatsapp).trim() : '';
+
+    const existing = queryOne<{ id: string; role: string }>('SELECT id, role FROM users WHERE email = ?', cleanEmail);
+    if (existing) {
+      res.status(400).json({ error: `A user with email "${cleanEmail}" already exists in the system.` });
+      return;
+    }
+
+    const teacherPassword = password ? String(password).trim() : 'teacher@accl2026';
+    const { salt, hash } = hashPassword(teacherPassword);
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    execute(`
+      INSERT INTO users (
+        id, email, password_hash, salt, full_name, whatsapp,
+        role, status, learning_level, can_approve, can_admit, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'teacher', 'active', 'Book 1', ?, 0, ?, ?)
+    `,
+      id,
+      cleanEmail,
+      hash,
+      salt,
+      cleanName,
+      cleanWa,
+      can_approve !== false ? 1 : 0,
+      now,
+      now
+    );
+
+    // Also record into teacher_applications as approved
+    const appId = crypto.randomUUID();
+    execute(`
+      INSERT INTO teacher_applications (
+        id, full_name, email, whatsapp, subjects, introduction, status, created_at, reviewed_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?)
+    `,
+      appId,
+      cleanName,
+      cleanEmail,
+      cleanWa,
+      subjects ? String(subjects).trim() : 'General Curriculum Facilitator',
+      `Registered directly by Owner (${actor.full_name})`,
+      now,
+      now
+    );
+
+    logAudit(actor.id, actor.full_name, actor.role, 'TEACHER_REGISTERED_BY_OWNER', `Owner registered teacher: ${cleanName} (${cleanEmail})`);
+
+    res.status(201).json({
+      message: `Teacher "${cleanName}" registered successfully! Initial temporary password: ${teacherPassword}`,
+      teacher: {
+        id,
+        full_name: cleanName,
+        email: cleanEmail,
+        whatsapp: cleanWa,
+        role: 'teacher',
+        status: 'active',
+        can_approve: can_approve !== false,
+        created_at: now,
+      },
+      temporaryPassword: teacherPassword,
+    });
+  } catch (error: any) {
+    console.error('[Register Teacher Error]:', error);
+    res.status(500).json({ error: error.message || 'Failed to register teacher.' });
+  }
+});
+
+// Owner: Clear dummy student admissions and non-approved students
+usersRouter.post('/clear-dummy-students', authMiddleware, requireRole('owner'), (req: AuthRequest, res: Response) => {
+  try {
+    const actor = req.user!;
+    // Delete students who have no submissions or are marked dummy/pending rejected
+    const deletedCount = execute(`
+      DELETE FROM student_admissions
+      WHERE status IN ('rejected', 'pending')
+         OR full_name LIKE '%dummy%'
+         OR email LIKE '%dummy%'
+         OR email LIKE '%test%'
+    `);
+
+    execute(`
+      DELETE FROM users
+      WHERE role = 'student'
+        AND (full_name LIKE '%dummy%' OR email LIKE '%dummy%' OR email LIKE '%test%')
+    `);
+
+    logAudit(actor.id, actor.full_name, actor.role, 'DUMMY_STUDENTS_CLEARED', 'Purged all dummy and rejected student entries');
+
+    res.json({
+      message: 'All dummy and pending/rejected student admission entries have been cleared successfully.',
+    });
+  } catch (error: any) {
+    console.error('[Clear Dummy Students Error]:', error);
+    res.status(500).json({ error: error.message || 'Failed to clear dummy students.' });
+  }
+});
+
 // Owner/Admin: View Audit Logs
 usersRouter.get('/audit-logs', authMiddleware, requireRole('owner', 'admin'), (_req, res: Response) => {
   const logs = queryAll(`
@@ -321,4 +463,5 @@ usersRouter.get('/audit-logs', authMiddleware, requireRole('owner', 'admin'), (_
   `);
   res.json({ logs });
 });
+
 

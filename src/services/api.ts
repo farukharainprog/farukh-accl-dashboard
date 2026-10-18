@@ -497,6 +497,29 @@ export const api = {
     );
   },
 
+  registerTeacherByOwner: async (data: { full_name: string; email: string; whatsapp?: string; subjects?: string; password?: string; can_approve?: boolean }): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<any>('/users/register-teacher', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        if (res.teacher) {
+          storageService.saveUserLocally(res.teacher, res.temporaryPassword || 'teacher@accl2026');
+        }
+        return res;
+      },
+      () => storageService.registerTeacherByOwner(data)
+    );
+  },
+
+  clearDummyStudents: async (): Promise<any> => {
+    return syncRequest(
+      () => serverRequest<any>('/users/clear-dummy-students', { method: 'POST' }),
+      () => storageService.clearDummyStudents()
+    );
+  },
+
   getStudentsOverview: async (): Promise<{ students: any[]; totalCurriculumTasks: number }> => {
     return syncRequest(
       () => serverRequest<{ students: any[]; totalCurriculumTasks: number }>('/users/students-overview'),

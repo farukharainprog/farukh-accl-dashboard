@@ -33,11 +33,70 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const [unregisteredNotice, setUnregisteredNotice] = useState(false);
   const [pendingNotice, setPendingNotice] = useState(false);
 
+  // Student sign-in sub-mode: 'google' vs 'password'
+  const [studentAuthType, setStudentAuthType] = useState<'google' | 'password'>('google');
+  const [studentPassword, setStudentPassword] = useState('');
+  const [studentPassLoading, setStudentPassLoading] = useState(false);
+
   // Owner / Staff Password Sign-In state
   const [ownerEmail, setOwnerEmail] = useState('');
   const [ownerPassword, setOwnerPassword] = useState('');
   const [ownerLoading, setOwnerLoading] = useState(false);
   const [ownerError, setOwnerError] = useState('');
+
+  // Handle Student Email & Password Sign-In
+  const handleStudentPasswordSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStudentError('');
+    setUnregisteredNotice(false);
+    setPendingNotice(false);
+
+    if (!studentGmail.trim()) {
+      setStudentError('Please enter your registered Gmail / Email address.');
+      return;
+    }
+    if (!studentPassword.trim()) {
+      setStudentError('Please enter your password.');
+      return;
+    }
+
+    setStudentPassLoading(true);
+
+    try {
+      const res = await api.login({
+        email: studentGmail.trim().toLowerCase(),
+        password: studentPassword.trim(),
+      });
+
+      if (res.user?.status === 'pending' || res.isPending) {
+        setPendingNotice(true);
+        setStudentError('Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein.');
+        return;
+      }
+
+      if (res.user?.status === 'suspended' || res.user?.status === 'rejected') {
+        setStudentError('Your student account is not active. Please contact Farukh Businessman Wala on WhatsApp.');
+        return;
+      }
+
+      // Remember last signed in student Gmail on this device
+      try {
+        localStorage.setItem('accl_last_student_gmail', studentGmail.trim().toLowerCase());
+      } catch {}
+
+      login(res.token, res.user);
+      onSuccessLogin();
+    } catch (err: any) {
+      if (err?.data?.isUnregistered || err?.message?.toLowerCase().includes('not registered') || err?.message?.toLowerCase().includes('incorrect email')) {
+        setUnregisteredNotice(true);
+      } else if (err?.data?.isPending || err?.message?.toLowerCase().includes('sabar') || err?.message?.toLowerCase().includes('pending')) {
+        setPendingNotice(true);
+      }
+      setStudentError(err?.message || 'Login failed. Please check your email and password.');
+    } finally {
+      setStudentPassLoading(false);
+    }
+  };
 
   const dashboardTitle = settings?.dashboard_title || 'Farukh Businessman Wala ACCL Dashboard';
   const academyName = settings?.academy_name || 'Rehan School Tuition Academy';
@@ -303,12 +362,99 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </div>
               )}
 
-              <form onSubmit={handleStudentGoogleSignIn} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Your Gmail Address
-                  </label>
-                  <div className="relative">
+              {/* Student Sign-In Method Selector */}
+              <div className="flex rounded-lg bg-slate-100 p-0.5 mb-5 text-[11px] font-semibold border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudentAuthType('google');
+                    setStudentError('');
+                  }}
+                  className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    studentAuthType === 'google'
+                      ? 'bg-white text-blue-700 font-bold shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Google Sign-In (No Password)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudentAuthType('password');
+                    setStudentError('');
+                  }}
+                  className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    studentAuthType === 'password'
+                      ? 'bg-white text-blue-700 font-bold shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Lock className="w-3 h-3 text-blue-600" />
+                  <span>Email & Password</span>
+                </button>
+              </div>
+
+              {/* OPTION A: GOOGLE SIGN-IN */}
+              {studentAuthType === 'google' && (
+                <form onSubmit={handleStudentGoogleSignIn} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Your Registered Gmail Address
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="email"
+                        required
+                        placeholder="student@gmail.com"
+                        value={studentGmail}
+                        onChange={(e) => setStudentGmail(e.target.value)}
+                        className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Enter the Gmail address registered with Farukh Businessman Wala
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Full Name <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your student name"
+                      value={studentName}
+                      onChange={(e) => setStudentName(e.target.value)}
+                      className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
+                    />
+                  </div>
+
+                  {/* Primary Google Sign In Action Button */}
+                  <button
+                    type="submit"
+                    disabled={studentLoading}
+                    className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {studentLoading ? (
+                      <span>Signing in securely...</span>
+                    ) : (
+                      <>
+                        <span>Continue with Google Sign-In</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {/* OPTION B: EMAIL & PASSWORD SIGN-IN */}
+              {studentAuthType === 'password' && (
+                <form onSubmit={handleStudentPasswordSignIn} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Registered Email / Gmail
+                    </label>
                     <input
                       type="email"
                       required
@@ -318,45 +464,39 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                       className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
                     />
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Enter the Gmail address registered with Farukh Businessman Wala
-                  </p>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Full Name <span className="text-slate-400 font-normal">(Optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Enter your student name"
-                    value={studentName}
-                    onChange={(e) => setStudentName(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Enter your password"
+                      value={studentPassword}
+                      onChange={(e) => setStudentPassword(e.target.value)}
+                      className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Initial default password: <code className="text-blue-700 font-bold bg-blue-50 px-1 py-0.5 rounded">acclStudent@2026</code> (or your chosen password)
+                    </p>
+                  </div>
 
-                {/* Primary Google Sign In Action Button */}
-                <button
-                  type="submit"
-                  disabled={studentLoading}
-                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {studentLoading ? (
-                    <span>Signing in securely...</span>
-                  ) : (
-                    <>
-                      <span>Continue with Google Sign-In</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    disabled={studentPassLoading}
+                    className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>{studentPassLoading ? 'Signing in...' : 'Sign In with Password'}</span>
+                  </button>
+                </form>
+              )}
 
               <div className="mt-5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500 space-y-1">
-                <p className="font-semibold text-slate-700">Permanent Laptop Session</p>
+                <p className="font-semibold text-slate-700">Permanent Device Session</p>
                 <p>
-                  Once signed in, your account and task submissions remain permanently saved on this device. No need to re-enter your password!
+                  Your account and task submissions remain permanently saved on this device (laptops & mobile phones).
                 </p>
               </div>
             </div>

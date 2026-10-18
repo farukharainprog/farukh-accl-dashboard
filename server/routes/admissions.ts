@@ -125,16 +125,17 @@ admissionsRouter.post('/students/:id/approve', authMiddleware, requireRole('owne
   const now = new Date().toISOString();
 
   // Check if a user already exists for this email
-  const existingUser = queryOne<User>('SELECT * FROM users WHERE email = ?', admission.email);
+  const existingUser = queryOne<User>('SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))', admission.email);
 
   if (existingUser) {
     execute(`
       UPDATE users
       SET status = 'active',
+          learning_level = coalesce(?, learning_level, 'Book 1'),
           assigned_teacher_id = coalesce(?, assigned_teacher_id),
           updated_at = ?
       WHERE id = ?
-    `, admission.assigned_teacher_id || null, now, existingUser.id);
+    `, admission.learning_level || 'Book 1', admission.assigned_teacher_id || null, now, existingUser.id);
   } else {
     // Generate temporary initial password if student was registered by admin
     const defaultPassword = 'acclStudent@2026';
@@ -146,13 +147,13 @@ admissionsRouter.post('/students/:id/approve', authMiddleware, requireRole('owne
       VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 'active', ?, ?, ?, ?)
     `,
       userId,
-      admission.email,
+      admission.email.toLowerCase().trim(),
       hash,
       salt,
       admission.full_name,
       admission.father_name,
       admission.whatsapp,
-      admission.learning_level,
+      admission.learning_level || 'Book 1',
       admission.assigned_teacher_id || null,
       now,
       now

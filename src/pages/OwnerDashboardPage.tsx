@@ -26,6 +26,10 @@ import {
   GraduationCap,
   TrendingUp,
   Award,
+  Users,
+  Briefcase,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 
 export const OwnerDashboardPage: React.FC = () => {
@@ -38,6 +42,18 @@ export const OwnerDashboardPage: React.FC = () => {
   const [learningLevel, setLearningLevel] = useState('Book 1');
   const [registering, setRegistering] = useState(false);
   const [regNotice, setRegNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // State: Teacher Registration & Management
+  const [teachers, setTeachers] = useState<any[]>([]);
+  const [teacherApps, setTeacherApps] = useState<any[]>([]);
+  const [loadingTeachers, setLoadingTeachers] = useState(false);
+  const [teacherName, setTeacherName] = useState('');
+  const [teacherEmail, setTeacherEmail] = useState('');
+  const [teacherWhatsapp, setTeacherWhatsapp] = useState('');
+  const [teacherSubjects, setTeacherSubjects] = useState('');
+  const [teacherCanApprove, setTeacherCanApprove] = useState(true);
+  const [addingTeacher, setAddingTeacher] = useState(false);
+  const [teacherNotice, setTeacherNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // State: Task Submissions Review Queue
   const [submissions, setSubmissions] = useState<any[]>([]);
@@ -89,18 +105,112 @@ export const OwnerDashboardPage: React.FC = () => {
     }
   };
 
-  // Initial and polling sync (every 7 seconds)
+  // Load Teachers & Applications
+  const fetchTeachers = async (silent = false) => {
+    if (!silent) setLoadingTeachers(true);
+    try {
+      const [tList, tApps] = await Promise.all([
+        api.getTeachersList(),
+        api.getTeacherApplications().catch(() => ({ applications: [] })),
+      ]);
+      setTeachers(tList?.teachers || []);
+      setTeacherApps(tApps?.applications || []);
+    } catch (err) {
+      console.warn('Failed to load teachers:', err);
+    } finally {
+      if (!silent) setLoadingTeachers(false);
+    }
+  };
+
+  // Initial and polling sync (every 4 seconds for real-time live review queue)
   useEffect(() => {
     fetchSubmissions();
     fetchStudents();
+    fetchTeachers();
 
     const interval = setInterval(() => {
       fetchSubmissions(true);
       fetchStudents(true);
-    }, 7000);
+      fetchTeachers(true);
+    }, 4000);
 
     return () => clearInterval(interval);
-  }, [subFilter]);
+  }, [subFilter, subSearch]);
+
+  // Handle Register Teacher
+  const handleRegisterTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTeacherNotice(null);
+    setAddingTeacher(true);
+    try {
+      const res = await api.registerTeacherByOwner({
+        full_name: teacherName.trim(),
+        email: teacherEmail.trim().toLowerCase(),
+        whatsapp: teacherWhatsapp.trim(),
+        subjects: teacherSubjects.trim(),
+        can_approve: teacherCanApprove,
+      });
+      setTeacherNotice({
+        type: 'success',
+        text: res.message || `Teacher "${teacherName}" added successfully! Initial temporary password: ${res.temporaryPassword || 'teacher@accl2026'}`,
+      });
+      setTeacherName('');
+      setTeacherEmail('');
+      setTeacherWhatsapp('');
+      setTeacherSubjects('');
+      await fetchTeachers(true);
+    } catch (err: any) {
+      setTeacherNotice({
+        type: 'error',
+        text: err.message || 'Failed to add teacher.',
+      });
+    } finally {
+      setAddingTeacher(false);
+    }
+  };
+
+  // Handle Approve Teacher Application
+  const handleApproveTeacherApp = async (id: string, name: string) => {
+    try {
+      const res = await api.approveTeacherApplication(id, { can_approve: true });
+      setActionNotice({
+        type: 'success',
+        text: (res.message || `Teacher ${name} approved successfully!`) + (res.temporaryPassword ? ` Password: ${res.temporaryPassword}` : ''),
+      });
+      await fetchTeachers(true);
+    } catch (err: any) {
+      setActionNotice({ type: 'error', text: err.message || 'Approval failed' });
+    }
+  };
+
+  // Handle Reject Teacher Application
+  const handleRejectTeacherApp = async (id: string) => {
+    try {
+      const res = await api.rejectTeacherApplication(id);
+      setActionNotice({
+        type: 'success',
+        text: res.message || 'Teacher application rejected.',
+      });
+      await fetchTeachers(true);
+    } catch (err: any) {
+      setActionNotice({ type: 'error', text: err.message || 'Rejection failed' });
+    }
+  };
+
+  // Handle Clear Dummy Students
+  const handleClearDummyStudents = async () => {
+    if (!confirm('Are you sure you want to clean all dummy and test student admission entries? Approved students with real assignments will be preserved.')) return;
+    try {
+      const res = await api.clearDummyStudents();
+      setActionNotice({
+        type: 'success',
+        text: res.message || 'Dummy student entries cleared successfully!',
+      });
+      await fetchStudents(false);
+    } catch (err: any) {
+      setActionNotice({ type: 'error', text: err.message || 'Failed to clear dummy entries' });
+    }
+  };
 
   // Handle Register Student (Only Name, WhatsApp, Gmail)
   const handleRegisterStudent = async (e: React.FormEvent) => {
@@ -232,20 +342,20 @@ export const OwnerDashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-8 pb-12">
-      {/* Action Notification Banner */}
+      {/* Action Notification Alert */}
       {actionNotice && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+          className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${
             actionNotice.type === 'success'
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-              : 'bg-red-50 border-red-300 text-red-900'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : 'bg-slate-100 border-slate-300 text-slate-900'
           }`}
         >
           <div className="flex items-center gap-2">
             {actionNotice.type === 'success' ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             ) : (
-              <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+              <AlertCircle className="w-5 h-5 text-slate-700 shrink-0" />
             )}
             <span>{actionNotice.text}</span>
           </div>
@@ -357,20 +467,20 @@ export const OwnerDashboardPage: React.FC = () => {
           </span>
         </div>
 
-        {/* Success / Error Notification */}
+        {/* Success / Notice Notification */}
         {regNotice && (
           <div
-            className={`p-4 mb-6 rounded-xl border text-xs font-semibold flex items-center justify-between ${
+            className={`p-3.5 mb-6 rounded-xl border text-xs font-semibold flex items-center justify-between ${
               regNotice.type === 'success'
                 ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
-                : 'bg-red-50 border-red-300 text-red-950'
+                : 'bg-slate-100 border-slate-300 text-slate-900'
             }`}
           >
             <div className="flex items-center gap-2">
               {regNotice.type === 'success' ? (
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
               ) : (
-                <XCircle className="w-5 h-5 text-red-600 shrink-0" />
+                <AlertCircle className="w-5 h-5 text-slate-700 shrink-0" />
               )}
               <span>{regNotice.text}</span>
             </div>
@@ -457,7 +567,204 @@ export const OwnerDashboardPage: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 2: TASK SUBMISSIONS & APPROVAL REVIEW (DIRECT APPROVE / REJECT)   */}
+      {/* SECTION 2: TEACHER REGISTRATION & MANAGEMENT                             */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                Teacher & Facilitator Management
+              </h3>
+              <p className="text-xs text-slate-500">
+                Register new academy teachers, assign task review privileges, and manage mentor staff.
+              </p>
+            </div>
+          </div>
+          <span className="hidden sm:inline-block text-[11px] font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200">
+            {teachers.length} Active {teachers.length === 1 ? 'Teacher' : 'Teachers'}
+          </span>
+        </div>
+
+        {/* Teacher Notice Alert */}
+        {teacherNotice && (
+          <div
+            className={`p-3.5 mb-6 rounded-xl border text-xs font-semibold flex items-center justify-between ${
+              teacherNotice.type === 'success'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                : 'bg-slate-100 border-slate-300 text-slate-900'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {teacherNotice.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-slate-700 shrink-0" />
+              )}
+              <span>{teacherNotice.text}</span>
+            </div>
+            <button
+              onClick={() => setTeacherNotice(null)}
+              className="text-slate-400 hover:text-slate-600 text-xs px-2 py-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Add Teacher Form */}
+        <form onSubmit={handleRegisterTeacher} className="space-y-4 mb-6 pb-6 border-b border-slate-100">
+          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+            Add New Teacher to Academy
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Teacher Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Sir Asad Khan"
+                value={teacherName}
+                onChange={(e) => setTeacherName(e.target.value)}
+                className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Teacher Email <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="teacher@gmail.com"
+                value={teacherEmail}
+                onChange={(e) => setTeacherEmail(e.target.value)}
+                className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                WhatsApp Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="tel"
+                required
+                placeholder="03XXXXXXXXX"
+                value={teacherWhatsapp}
+                onChange={(e) => setTeacherWhatsapp(e.target.value)}
+                className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Subjects / Expertise
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. English, Call Annie, AI"
+                value={teacherSubjects}
+                onChange={(e) => setTeacherSubjects(e.target.value)}
+                className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-slate-50"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={teacherCanApprove}
+                onChange={(e) => setTeacherCanApprove(e.target.checked)}
+                className="rounded text-teal-600 focus:ring-teal-500"
+              />
+              <span>Allow this teacher to review & approve student tasks</span>
+            </label>
+
+            <button
+              type="submit"
+              disabled={addingTeacher}
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{addingTeacher ? 'Adding Teacher...' : 'Add Teacher'}</span>
+            </button>
+          </div>
+        </form>
+
+        {/* Pending Teacher Applications (if any) */}
+        {teacherApps.length > 0 && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-50/60 border border-amber-200">
+            <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-3">
+              Pending Teacher Applications ({teacherApps.length})
+            </h4>
+            <div className="space-y-2">
+              {teacherApps.map((app) => (
+                <div key={app.id} className="p-3 bg-white rounded-lg border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="font-bold text-slate-900 text-xs">{app.full_name}</span>
+                    <span className="text-[11px] text-slate-500 ml-2">({app.email})</span>
+                    <p className="text-[11px] text-slate-600 mt-0.5">{app.subjects} &bull; WA: {app.whatsapp}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleApproveTeacherApp(app.id, app.full_name)}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold cursor-pointer"
+                    >
+                      Approve Teacher
+                    </button>
+                    <button
+                      onClick={() => handleRejectTeacherApp(app.id)}
+                      className="px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded text-xs cursor-pointer"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Active Teachers List */}
+        <div>
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+            Academy Teachers Directory
+          </h4>
+          {loadingTeachers ? (
+            <p className="text-xs text-slate-400 py-3">Loading teachers...</p>
+          ) : teachers.length === 0 ? (
+            <p className="text-xs text-slate-400 py-2">No teachers registered yet. Use the form above to add a teacher.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {teachers.map((t) => (
+                <div key={t.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 truncate">{t.full_name}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{t.email}</p>
+                    {t.whatsapp && (
+                      <p className="text-[10px] text-emerald-700 font-mono mt-0.5">WA: {t.whatsapp}</p>
+                    )}
+                  </div>
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-teal-100 text-teal-800 shrink-0">
+                    {t.can_approve ? 'Approver' : 'Mentor'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SECTION 3: TASK SUBMISSIONS & APPROVAL REVIEW (DIRECT APPROVE / REJECT)   */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 mb-6">

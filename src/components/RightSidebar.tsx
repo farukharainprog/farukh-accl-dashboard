@@ -92,14 +92,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     return () => clearInterval(timer);
   }, [attendance?.isCheckedIn]);
 
+  const [attNotice, setAttNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const handleCheckIn = async () => {
     setAttLoading(true);
+    setAttNotice(null);
     try {
       const res = await api.checkIn();
-      alert(res.message);
+      setAttNotice({ type: 'success', text: res.message || 'Checked in successfully!' });
       await fetchAttendance();
+      setTimeout(() => setAttNotice(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Check In failed');
+      setAttNotice({ type: 'error', text: err.message || 'Check In failed' });
     } finally {
       setAttLoading(false);
     }
@@ -107,13 +111,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const handleCheckOut = async () => {
     setAttLoading(true);
+    setAttNotice(null);
     try {
       const res = await api.checkOut();
-      alert(res.message);
+      setAttNotice({ type: 'success', text: res.message || 'Checked out successfully!' });
       await fetchAttendance();
       onRefreshSummary();
+      setTimeout(() => setAttNotice(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Check Out failed');
+      setAttNotice({ type: 'error', text: err.message || 'Check Out failed' });
     } finally {
       setAttLoading(false);
     }
@@ -275,6 +281,25 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             </span>
           )}
         </div>
+
+        {/* Attendance Action Feedback Alert */}
+        {attNotice && (
+          <div
+            className={`p-2.5 rounded-lg text-xs font-semibold flex items-center justify-between ${
+              attNotice.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
+                : 'bg-red-50 text-red-900 border border-red-300'
+            }`}
+          >
+            <span>{attNotice.text}</span>
+            <button
+              onClick={() => setAttNotice(null)}
+              className="text-slate-400 hover:text-slate-600 font-bold ml-2 text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Check In & Check Out Controls */}
         <div className="grid grid-cols-2 gap-2">

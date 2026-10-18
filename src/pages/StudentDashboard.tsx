@@ -63,21 +63,52 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const fetchDashboardData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [tasksRes, statsRes, summaryRes] = await Promise.all([
-        api.getTasks({
-          book: selectedBook,
+      // 1. Always load tasks first
+      try {
+        const tasksRes = await api.getTasks({
+          book: selectedBook === 'all' ? undefined : selectedBook,
           day: selectedDay !== 'all' ? Number(selectedDay) : undefined,
           category: selectedCategory !== 'all' ? selectedCategory : undefined,
           search: searchQuery.trim() || undefined,
-        }),
-        api.getTaskStats(),
-        api.getSummaryMe(selectedBook),
-      ]);
+        });
+        if (tasksRes?.tasks) {
+          if (tasksRes.tasks.length === 0 && selectedBook !== 'Book 1' && selectedDay === 'all' && selectedCategory === 'all' && !searchQuery.trim()) {
+            // Auto fallback to Book 1 if currently selected book has no tasks
+            const b1Res = await api.getTasks({ book: 'Book 1' });
+            if (b1Res?.tasks && b1Res.tasks.length > 0) {
+              setTasks(b1Res.tasks);
+              setSelectedBook('Book 1');
+            } else {
+              setTasks([]);
+            }
+          } else {
+            setTasks(tasksRes.tasks);
+          }
+        }
+      } catch (errTasks) {
+        console.error('Error fetching tasks:', errTasks);
+      }
 
-      setTasks(tasksRes.tasks || []);
-      setAvailableDays(statsRes.days || []);
-      setCategories(statsRes.categories || []);
-      setSummary(summaryRes);
+      // 2. Fetch stats
+      try {
+        const statsRes = await api.getTaskStats();
+        if (statsRes) {
+          setAvailableDays(statsRes.days || []);
+          setCategories(statsRes.categories || []);
+        }
+      } catch (errStats) {
+        console.warn('Error fetching stats:', errStats);
+      }
+
+      // 3. Fetch summary for student
+      try {
+        const summaryRes = await api.getSummaryMe(selectedBook === 'all' ? 'Book 1' : selectedBook);
+        if (summaryRes) {
+          setSummary(summaryRes);
+        }
+      } catch (errSum) {
+        console.warn('Error fetching summary:', errSum);
+      }
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -87,10 +118,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   useEffect(() => {
     fetchDashboardData();
-    // Real-time synchronization: poll every 10 seconds to sync approval/rejection statuses
+    // Real-time synchronization: poll every 4 seconds to sync approval/rejection statuses in real time
     const interval = setInterval(() => {
       fetchDashboardData(true);
-    }, 10000);
+    }, 4000);
     return () => clearInterval(interval);
   }, [selectedBook, selectedDay, selectedCategory]);
 
@@ -121,6 +152,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     }
   };
 
+  // Keep selectedBook synced when initialBook prop changes (e.g. from NavigationTabs)
+  useEffect(() => {
+    if (initialBook) {
+      setSelectedBook(initialBook);
+    }
+  }, [initialBook]);
+
   const [localStatusFilter, setLocalStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>(
     (statusFilterTab as any) || 'all'
   );
@@ -131,19 +169,18 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     }
   }, [statusFilterTab]);
 
-  // Filter tasks based on statusFilterTab or localStatusFilter (pending, approved, rejected)
+  // Filter tasks based on localStatusFilter (pending, approved, rejected, all)
   const filteredTasks = useMemo(() => {
-    const filterToUse = localStatusFilter !== 'all' ? localStatusFilter : (statusFilterTab || 'all');
-    if (filterToUse === 'all') return tasks;
+    if (localStatusFilter === 'all') return tasks;
 
     return tasks.filter((t) => {
       const sub = t.submission;
-      if (filterToUse === 'pending') return sub?.status === 'submitted';
-      if (filterToUse === 'approved') return sub?.status === 'approved';
-      if (filterToUse === 'rejected') return sub?.status === 'needs_correction' || sub?.status === 'rejected';
+      if (localStatusFilter === 'pending') return sub?.status === 'submitted';
+      if (localStatusFilter === 'approved') return sub?.status === 'approved';
+      if (localStatusFilter === 'rejected') return sub?.status === 'needs_correction' || sub?.status === 'rejected';
       return true;
     });
-  }, [tasks, statusFilterTab, localStatusFilter]);
+  }, [tasks, localStatusFilter]);
 
   const approvedCount = summary?.approvedCount || 0;
   const pendingCount = summary?.pendingCount || 0;
@@ -408,6 +445,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             >
               Book 2 (Advanced)
             </button>
+            <button
+              onClick={() => {
+                setSelectedBook('all');
+                setSelectedDay('all');
+              }}
+              className={`px-3 py-1.5 rounded-md transition-all ${
+                selectedBook === 'all' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Books
+            </button>
           </div>
 
           {/* Day Filter */}
@@ -509,43 +557,69 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           </div>
 
-          {/* Empty State with Owner Load Tasks Button */}
+          {/* Empty State: Differentiate empty filter vs truly empty DB */}
           {!loading && filteredTasks.length === 0 && (
-            <div className="bg-white rounded-2xl border-2 border-dashed border-blue-200 p-10 text-center text-slate-600 space-y-4 shadow-xs">
-              <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-inner">
-                <BookOpen className="w-8 h-8" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">
-                  {selectedBook === 'Book 2' ? 'Book 2 Tasks' : 'Curriculum Tasks Not Loaded Yet'}
-                </h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed mt-1">
-                  {selectedBook === 'Book 2'
-                    ? 'No tasks have been added for Book 2 yet. You can create new Book 2 challenges below.'
-                    : 'The database currently has 0 tasks loaded for this view. Click below to instantly load all 220+ original Rehan School Foundation tasks.'}
-                </p>
+            <div className="bg-white rounded-2xl border-2 border-dashed border-blue-200 p-8 text-center text-slate-600 space-y-4 shadow-xs">
+              <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-inner">
+                <BookOpen className="w-7 h-7" />
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                <button
-                  onClick={handleLoadDefaultTasks}
-                  disabled={loadingDefaults}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all disabled:opacity-50"
-                >
-                  <DownloadCloud className={`w-4 h-4 ${loadingDefaults ? 'animate-bounce' : ''}`} />
-                  <span>{loadingDefaults ? 'Loading Tasks...' : 'Load All 220+ Default Foundation Tasks'}</span>
-                </button>
-
-                {(isOwner || isAdmin) && (
-                  <button
-                    onClick={() => setShowAddTaskModal(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs border border-slate-300 transition-all"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Create Custom Task</span>
-                  </button>
-                )}
-              </div>
+              {tasks.length > 0 ? (
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    No tasks found matching filter: <span className="capitalize text-blue-600">"{localStatusFilter}"</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed mt-1">
+                    You have <strong className="text-slate-800">{tasks.length} tasks</strong> assigned in {selectedBook}.
+                    {localStatusFilter === 'approved' && ' You have not had any tasks approved in this filter yet.'}
+                    {localStatusFilter === 'pending' && ' You have no tasks waiting in the review queue.'}
+                    {localStatusFilter === 'rejected' && ' None of your tasks currently need correction.'}
+                  </p>
+                  <div className="pt-3">
+                    <button
+                      onClick={() => {
+                        setLocalStatusFilter('all');
+                        setSelectedDay('all');
+                        setSelectedCategory('all');
+                        setSearchQuery('');
+                      }}
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+                    >
+                      View All Assigned Tasks ({tasks.length} Tasks)
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    {selectedBook === 'Book 2' ? 'Book 2 Tasks' : 'Curriculum Tasks Not Loaded Yet'}
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed mt-1">
+                    {selectedBook === 'Book 2'
+                      ? 'No tasks have been added for Book 2 yet. You can create new Book 2 challenges below.'
+                      : 'The database currently has 0 tasks loaded for this view. Click below to load all 220+ original Rehan School Foundation tasks.'}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
+                    <button
+                      onClick={handleLoadDefaultTasks}
+                      disabled={loadingDefaults}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      <DownloadCloud className={`w-4 h-4 ${loadingDefaults ? 'animate-bounce' : ''}`} />
+                      <span>{loadingDefaults ? 'Loading Tasks...' : 'Load All 220+ Default Foundation Tasks'}</span>
+                    </button>
+                    {(isOwner || isAdmin) && (
+                      <button
+                        onClick={() => setShowAddTaskModal(true)}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs border border-slate-300 transition-all cursor-pointer"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        <span>Create Custom Task</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

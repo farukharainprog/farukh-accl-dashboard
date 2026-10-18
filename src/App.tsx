@@ -118,7 +118,7 @@ const DashboardContent: React.FC = () => {
 
           {activeTab === 'all_tasks' && (
             <StudentDashboard
-              initialBook="Book 1"
+              initialBook="all"
               onNavigateToHistory={() => setActiveTab('attendance')}
             />
           )}

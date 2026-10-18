@@ -350,32 +350,29 @@ export function initDatabase(): void {
     }
   }
 
-  // Seed tasks if empty
-  const countRow = queryOne<{ count: number }>('SELECT COUNT(*) as count FROM tasks');
-  if (!countRow || countRow.count === 0) {
-    ORIGINAL_TASKS.forEach((t, idx) => {
-      const taskId = `task-${t.book.toLowerCase().replace(/\s+/g, '')}-d${t.day_number}-${idx + 1}`;
-      execute(`
-        INSERT INTO tasks (id, book, day_number, title, description, category, required_links, allows_text, allows_file, status, source_flag, order_index, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-        taskId,
-        t.book,
-        t.day_number,
-        t.title,
-        t.description,
-        t.category,
-        JSON.stringify(t.required_links || ['Facebook Post', 'YouTube Content']),
-        t.allows_text !== false ? 1 : 0,
-        t.allows_file ? 1 : 0,
-        'active',
-        t.source_flag || null,
-        idx + 1,
-        new Date().toISOString()
-      );
-    });
-    console.log(`[Database] Successfully seeded ${ORIGINAL_TASKS.length} tasks from original dashboard.`);
-  }
+  // Seed tasks from ORIGINAL_TASKS (Day 1-180 Book 1 + Advanced Book 2)
+  ORIGINAL_TASKS.forEach((t, idx) => {
+    const taskId = `task-${t.book.toLowerCase().replace(/\s+/g, '')}-d${t.day_number}-${idx + 1}`;
+    execute(`
+      INSERT OR IGNORE INTO tasks (id, book, day_number, title, description, category, required_links, allows_text, allows_file, status, source_flag, order_index, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+      taskId,
+      t.book,
+      t.day_number,
+      t.title,
+      t.description,
+      t.category,
+      JSON.stringify(t.required_links || ['Facebook Post', 'YouTube Content']),
+      t.allows_text !== false ? 1 : 0,
+      t.allows_file ? 1 : 0,
+      'active',
+      t.source_flag || null,
+      idx + 1,
+      new Date().toISOString()
+    );
+  });
+  console.log(`[Database] Ensured ${ORIGINAL_TASKS.length} curriculum tasks across Book 1 & Book 2.`);
 
   // Seed sample batch if empty
   const batchCount = queryOne<{ count: number }>('SELECT COUNT(*) as count FROM batches');
