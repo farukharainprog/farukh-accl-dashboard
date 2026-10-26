@@ -406,7 +406,7 @@ export const storageService = {
         users.unshift(user);
         setStore(KEYS.USERS, users);
       } else if (adm.status === 'pending') {
-        const err = new Error('Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein. Approved hone ke baad aap login kar saken gay.') as any;
+        const err = new Error('Your admission is under review by Farukh Businessman Wala. Please allow up to 12 hours for owner approval. Once approved, you can sign in.') as any;
         err.status = 403;
         err.data = { error: err.message, isPending: true };
         throw err;
@@ -552,7 +552,7 @@ export const storageService = {
         users.unshift(user);
         setStore(KEYS.USERS, users);
       } else if (adm && adm.status === 'pending') {
-        const err: any = new Error('Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein.');
+        const err: any = new Error('Your admission is under review by Farukh Businessman Wala. Please allow up to 12 hours for owner approval.');
         err.isPending = true;
         throw err;
       }
@@ -1013,7 +1013,7 @@ export const storageService = {
 
   // Submissions: Summary
   async getSummaryMe(book = 'Book 1'): Promise<SubmissionSummary> {
-    const tasks = getStore<TaskItem[]>(KEYS.TASKS, []).filter((t) => t.book === book && t.status === 'active');
+    const tasks = getStore<TaskItem[]>(KEYS.TASKS, []).filter((t) => (book === 'all' || t.book === book) && t.status === 'active');
     const totalTasks = tasks.length;
 
     let studentId = '';

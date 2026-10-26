@@ -42,7 +42,8 @@ async function serverRequest<T>(endpoint: string, options: RequestInit = {}): Pr
 
   if (!res.ok) {
     const isInfraError = res.status === 405 || res.status === 404 || res.status >= 500 || data === null;
-    if (res.status === 401 && !isInfraError) {
+    // Only remove stored token on 401 if specifically checking session at /auth/me to prevent sudden logouts during task submissions
+    if (res.status === 401 && endpoint === '/auth/me' && !isInfraError) {
       removeStoredToken();
     }
     const errMessage = data?.error || data?.message || `Request failed with status ${res.status}`;
@@ -188,7 +189,7 @@ export const api = {
   // Tasks
   getTasks: async (params?: { book?: string; day?: number; category?: string; search?: string; status?: string; student_id?: string }): Promise<{ tasks: TaskItem[] }> => {
     const qs = new URLSearchParams();
-    if (params?.book) qs.set('book', params.book);
+    if (params?.book && params.book !== 'all') qs.set('book', params.book);
     if (params?.day !== undefined) qs.set('day', String(params.day));
     if (params?.category) qs.set('category', params.category);
     if (params?.search) qs.set('search', params.search);

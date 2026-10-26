@@ -52,7 +52,7 @@ tasksRouter.get('/', (req: AuthRequest, res: Response) => {
     params.push(currentUserId);
   }
 
-  if (book) {
+  if (book && book !== 'all') {
     query += ' AND t.book = ?';
     params.push(book);
   }

@@ -243,7 +243,7 @@ authRouter.post('/login', (req, res: Response) => {
         `, newUserId);
       } else if (admission.status === 'pending') {
         res.status(403).json({
-          error: 'Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein. Approved hone ke baad aap login kar saken gay.',
+          error: 'Your admission is currently under review by Farukh Businessman Wala. Please allow up to 12 hours for owner approval. Once approved, you will be able to sign in.',
           isPending: true,
         });
         return;
@@ -276,7 +276,7 @@ authRouter.post('/login', (req, res: Response) => {
 
     if (user.status === 'pending') {
       res.status(403).json({
-        error: 'Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein. Farukh Businessman Wala ke approve karne ke baad aap portal me tasks dekh saken gay.',
+        error: 'Your admission is currently under review by Farukh Businessman Wala. Please allow up to 12 hours for owner approval. Once approved, you can sign in to view your tasks.',
         isPending: true,
       });
       return;
@@ -408,7 +408,7 @@ authRouter.post('/google-login', (req, res: Response) => {
         `, newUserId);
       } else if (admission.status === 'pending') {
         res.status(403).json({
-          error: 'Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein. Farukh Businessman Wala ke approve karne ke baad aap portal me tasks dekh saken gay.',
+          error: 'Your admission is currently under review by Farukh Businessman Wala. Please allow up to 12 hours for owner approval. Once approved, you can sign in with Google.',
           isPending: true,
         });
         return;
@@ -436,7 +436,7 @@ authRouter.post('/google-login', (req, res: Response) => {
 
     if (user.status === 'pending') {
       res.status(403).json({
-        error: 'Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein. Farukh Businessman Wala ke approve karne ke baad aap portal me tasks dekh saken gay.',
+        error: 'Your admission is currently under review by Farukh Businessman Wala. Please allow up to 12 hours for owner approval. Once approved, you can sign in with Google.',
         isPending: true,
       });
       return;

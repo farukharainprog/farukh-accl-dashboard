@@ -15,30 +15,55 @@ submissionsRouter.get('/summary/me', authMiddleware, requireActive, (req: AuthRe
   const studentId = req.user.id;
   const book = (req.query.book as string) || req.user.learning_level || 'Book 1';
 
-  // Total required active tasks in current book
-  const totalTasks = queryOne<{ count: number }>("SELECT COUNT(*) as count FROM tasks WHERE book = ? AND status = 'active'", book)?.count || 0;
+  const isAll = !book || book === 'all';
 
-  // Student's submissions in this book
-  const approvedCount = queryOne<{ count: number }>(`
-    SELECT COUNT(DISTINCT s.task_id) as count
-    FROM submissions s
-    JOIN tasks t ON s.task_id = t.id
-    WHERE s.student_id = ? AND s.status = 'approved' AND t.book = ? AND t.status = 'active'
-  `, studentId, book)?.count || 0;
+  // Total required active tasks in current book or all books
+  const totalTasks = isAll
+    ? queryOne<{ count: number }>("SELECT COUNT(*) as count FROM tasks WHERE status = 'active'")?.count || 0
+    : queryOne<{ count: number }>("SELECT COUNT(*) as count FROM tasks WHERE book = ? AND status = 'active'", book)?.count || 0;
 
-  const pendingCount = queryOne<{ count: number }>(`
-    SELECT COUNT(DISTINCT s.task_id) as count
-    FROM submissions s
-    JOIN tasks t ON s.task_id = t.id
-    WHERE s.student_id = ? AND s.status = 'submitted' AND t.book = ? AND t.status = 'active'
-  `, studentId, book)?.count || 0;
+  // Student's submissions in this book or across all books
+  const approvedCount = isAll
+    ? queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT s.task_id) as count
+        FROM submissions s
+        JOIN tasks t ON s.task_id = t.id
+        WHERE s.student_id = ? AND s.status = 'approved' AND t.status = 'active'
+      `, studentId)?.count || 0
+    : queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT s.task_id) as count
+        FROM submissions s
+        JOIN tasks t ON s.task_id = t.id
+        WHERE s.student_id = ? AND s.status = 'approved' AND t.book = ? AND t.status = 'active'
+      `, studentId, book)?.count || 0;
 
-  const needsCorrectionCount = queryOne<{ count: number }>(`
-    SELECT COUNT(DISTINCT s.task_id) as count
-    FROM submissions s
-    JOIN tasks t ON s.task_id = t.id
-    WHERE s.student_id = ? AND s.status IN ('needs_correction', 'rejected') AND t.book = ? AND t.status = 'active'
-  `, studentId, book)?.count || 0;
+  const pendingCount = isAll
+    ? queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT s.task_id) as count
+        FROM submissions s
+        JOIN tasks t ON s.task_id = t.id
+        WHERE s.student_id = ? AND s.status = 'submitted' AND t.status = 'active'
+      `, studentId)?.count || 0
+    : queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT s.task_id) as count
+        FROM submissions s
+        JOIN tasks t ON s.task_id = t.id
+        WHERE s.student_id = ? AND s.status = 'submitted' AND t.book = ? AND t.status = 'active'
+      `, studentId, book)?.count || 0;
+
+  const needsCorrectionCount = isAll
+    ? queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT s.task_id) as count
+        FROM submissions s
+        JOIN tasks t ON s.task_id = t.id
+        WHERE s.student_id = ? AND s.status IN ('needs_correction', 'rejected') AND t.status = 'active'
+      `, studentId)?.count || 0
+    : queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT s.task_id) as count
+        FROM submissions s
+        JOIN tasks t ON s.task_id = t.id
+        WHERE s.student_id = ? AND s.status IN ('needs_correction', 'rejected') AND t.book = ? AND t.status = 'active'
+      `, studentId, book)?.count || 0;
 
   const remainingTasks = Math.max(0, totalTasks - approvedCount);
   const progressPercent = totalTasks > 0 ? Math.min(100, Math.round((approvedCount / totalTasks) * 100)) : 0;

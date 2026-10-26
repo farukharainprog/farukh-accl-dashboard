@@ -41,6 +41,21 @@ export function createToken(userId: string, role: UserRole): string {
 
 export function verifyToken(token: string): { userId: string; role: UserRole } | null {
   try {
+    if (!token) return null;
+
+    // Check if token is in token-<userId>-<timestamp> fallback format
+    if (token.startsWith('token-')) {
+      const parts = token.split('-');
+      if (parts.length >= 3) {
+        // userId may contain hyphens (e.g. UUID)
+        const userId = parts.slice(1, parts.length - 1).join('-');
+        const u = db.prepare('SELECT id, role FROM users WHERE id = ?').get(userId) as { id: string; role: UserRole } | undefined;
+        if (u) {
+          return { userId: u.id, role: u.role };
+        }
+      }
+    }
+
     const [data, signature] = token.split('.');
     if (!data || !signature) return null;
 

@@ -70,7 +70,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
 
       if (res.user?.status === 'pending' || res.isPending) {
         setPendingNotice(true);
-        setStudentError('Aap ka admission Farukh Businessman Wala review kar rahe hain. Baraye meherbani 12 hours sabar farmayein.');
+        setStudentError('Your admission is under review by Farukh Businessman Wala. Please allow up to 12 hours for approval.');
         return;
       }
 
