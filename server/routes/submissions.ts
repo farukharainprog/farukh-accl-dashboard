@@ -87,7 +87,15 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
   }
 
   const studentId = req.user.id;
-  const { task_id, fb_link, yt_link, li_link, insta_link, other_link, file_url, file_name, student_notes } = req.body;
+  const task_id = req.body.task_id || req.body.taskId;
+  const fb_link = req.body.fb_link || req.body.fbLink;
+  const yt_link = req.body.yt_link || req.body.ytLink;
+  const li_link = req.body.li_link || req.body.liLink;
+  const insta_link = req.body.insta_link || req.body.instaLink;
+  const other_link = req.body.other_link || req.body.otherLink;
+  const file_url = req.body.file_url || req.body.fileUrl;
+  const file_name = req.body.file_name || req.body.fileName;
+  const student_notes = req.body.student_notes || req.body.studentNotes;
 
   if (!task_id) {
     res.status(400).json({ error: 'Task ID is required.' });
@@ -253,16 +261,16 @@ submissionsRouter.get('/queue', authMiddleware, (req: AuthRequest, res: Response
 
   let query = `
     SELECT s.*,
-           u.full_name as student_name,
-           u.email as student_email,
+           COALESCE(u.full_name, 'Student') as student_name,
+           COALESCE(u.email, '') as student_email,
            u.assigned_teacher_id,
-           t.title as task_title,
-           t.day_number as task_day,
-           t.category as task_category,
-           t.book as task_book
+           COALESCE(t.title, 'Task') as task_title,
+           COALESCE(t.day_number, 1) as task_day,
+           COALESCE(t.category, 'General') as task_category,
+           COALESCE(t.book, 'Book 1') as task_book
     FROM submissions s
-    JOIN users u ON s.student_id = u.id
-    JOIN tasks t ON s.task_id = t.id
+    LEFT JOIN users u ON s.student_id = u.id
+    LEFT JOIN tasks t ON s.task_id = t.id
     WHERE 1=1
   `;
   const params: any[] = [];

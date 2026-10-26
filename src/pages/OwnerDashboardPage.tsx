@@ -30,6 +30,7 @@ import {
   Briefcase,
   Trash2,
   Plus,
+  Bell,
 } from 'lucide-react';
 
 export const OwnerDashboardPage: React.FC = () => {
@@ -66,6 +67,10 @@ export const OwnerDashboardPage: React.FC = () => {
   const [rejectFeedback, setRejectFeedback] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
+  // Real-time submission live alert
+  const [newSubAlert, setNewSubAlert] = useState<{ studentName: string; taskTitle: string; taskDay: number } | null>(null);
+  const prevPendingCountRef = React.useRef<number | null>(null);
+
   // State: Students Progress Reports
   const [studentsOverview, setStudentsOverview] = useState<any[]>([]);
   const [totalCurriculum, setTotalCurriculum] = useState(180);
@@ -83,7 +88,43 @@ export const OwnerDashboardPage: React.FC = () => {
         status: subFilter === 'all' ? undefined : subFilter === 'rejected' ? 'needs_correction' : subFilter,
         search: subSearch.trim() || undefined,
       });
-      setSubmissions(res.submissions || []);
+      const items = res.submissions || [];
+
+      // Detect new incoming submissions in real-time
+      const currentPending = items.filter((s: any) => s.status === 'submitted');
+      if (prevPendingCountRef.current !== null && currentPending.length > prevPendingCountRef.current) {
+        const newest = currentPending[0];
+        if (newest) {
+          setNewSubAlert({
+            studentName: newest.student_name,
+            taskTitle: newest.task_title,
+            taskDay: newest.task_day,
+          });
+          // Play a gentle alert sound if supported
+          try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioCtx) {
+              const ctx = new AudioCtx();
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+              osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
+              gain.gain.setValueAtTime(0.12, ctx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+              osc.start();
+              osc.stop(ctx.currentTime + 0.4);
+            }
+          } catch (e) {
+            // Audio context autoplay might be restricted
+          }
+          setTimeout(() => setNewSubAlert(null), 8000);
+        }
+      }
+      prevPendingCountRef.current = currentPending.length;
+      setSubmissions(items);
     } catch (err) {
       console.error('Failed to load review queue:', err);
     } finally {
@@ -122,7 +163,7 @@ export const OwnerDashboardPage: React.FC = () => {
     }
   };
 
-  // Initial and polling sync (every 4 seconds for real-time live review queue)
+  // Initial and polling sync (every 2 seconds for instant real-time live review queue)
   useEffect(() => {
     fetchSubmissions();
     fetchStudents();
@@ -132,7 +173,7 @@ export const OwnerDashboardPage: React.FC = () => {
       fetchSubmissions(true);
       fetchStudents(true);
       fetchTeachers(true);
-    }, 4000);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [subFilter, subSearch]);
@@ -444,10 +485,425 @@ export const OwnerDashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Real-time New Task Submission Alert Banner (Pops up immediately when a student submits) */}
+      {newSubAlert && (
+        <div className="p-4 bg-linear-to-r from-amber-500 via-amber-400 to-yellow-400 text-slate-950 rounded-2xl shadow-lg border-2 border-amber-300 flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-slate-950 text-amber-400 rounded-xl shrink-0">
+              <Bell className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-slate-950 text-amber-300">
+                  New Task Submitted Just Now!
+                </span>
+                <span className="text-xs font-bold text-slate-900">Real-Time Sync</span>
+              </div>
+              <h4 className="text-sm sm:text-base font-black text-slate-950 mt-0.5">
+                {newSubAlert.studentName} submitted Day {newSubAlert.taskDay}: &quot;{newSubAlert.taskTitle}&quot;
+              </h4>
+              <p className="text-xs font-semibold text-slate-900/80">
+                Awaiting your review and approval below.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setNewSubAlert(null)}
+            className="px-3 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs shrink-0 cursor-pointer"
+          >
+            Review Now ↓
+          </button>
+        </div>
+      )}
+
+      {/* Urgent Pending Review Banner if tasks are waiting */}
+      {pendingSubmissionsCount > 0 && !newSubAlert && (
+        <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-950 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-200 text-amber-900 rounded-xl">
+              <Clock className="w-5 h-5 text-amber-700 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-950">
+                {pendingSubmissionsCount} Student {pendingSubmissionsCount === 1 ? 'Task' : 'Tasks'} Waiting For Your Approval
+              </h4>
+              <p className="text-xs text-amber-800">
+                Student dashboard displays &quot;Pending Task&quot; until you click Approve below.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setSubFilter('submitted');
+                const el = document.getElementById('submissions-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+            >
+              Review Pending Tasks ({pendingSubmissionsCount})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Section Anchor Navigation Bar */}
+      <div className="flex flex-wrap items-center gap-2 pt-1 pb-1">
+        <a
+          href="#submissions-section"
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs ${
+            pendingSubmissionsCount > 0
+              ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Task Submissions</span>
+          {pendingSubmissionsCount > 0 && (
+            <span className="px-1.5 py-0.2 bg-slate-950 text-amber-300 rounded-full text-[10px] font-black">
+              {pendingSubmissionsCount}
+            </span>
+          )}
+        </a>
+
+        <a
+          href="#registration-section"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all shadow-xs"
+        >
+          <UserPlus className="w-3.5 h-3.5 text-blue-600" />
+          <span>Register Student (3 Details)</span>
+        </a>
+
+        <a
+          href="#teachers-section"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all shadow-xs"
+        >
+          <Users className="w-3.5 h-3.5 text-teal-600" />
+          <span>Teachers Directory ({teachers.length})</span>
+        </a>
+
+        <a
+          href="#students-section"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all shadow-xs"
+        >
+          <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+          <span>Students Progress ({totalStudents})</span>
+        </a>
+      </div>
+
       {/* ========================================================================= */}
-      {/* SECTION 1: SIMPLE STUDENT REGISTRATION (3 DETAILS ONLY)                  */}
+      {/* SECTION 1: TASK SUBMISSIONS & APPROVAL REVIEW (DIRECT APPROVE / REJECT)   */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      <div id="submissions-section" className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm p-6 sm:p-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                  Task Submissions & Approval Review
+                </h3>
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Live Sync (Every 2s)
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Review student task submissions in real time. Click Approve or Reject to update student dashboard immediately.
+              </p>
+            </div>
+          </div>
+
+          {/* Filter Status Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setSubFilter('submitted')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                subFilter === 'submitted'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Pending Review ({submissions.filter((s) => s.status === 'submitted').length})
+            </button>
+
+            <button
+              onClick={() => setSubFilter('approved')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                subFilter === 'approved'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Approved
+            </button>
+
+            <button
+              onClick={() => setSubFilter('rejected')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                subFilter === 'rejected'
+                  ? 'bg-red-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Needs Correction
+            </button>
+
+            <button
+              onClick={() => setSubFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                subFilter === 'all'
+                  ? 'bg-slate-800 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              All
+            </button>
+          </div>
+        </div>
+
+        {/* Submissions List */}
+        {loadingSubmissions ? (
+          <div className="text-center py-12">
+            <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mx-auto mb-2" />
+            <p className="text-xs text-slate-500">Loading task submissions...</p>
+          </div>
+        ) : submissions.length === 0 ? (
+          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            <CheckCircle2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+            <h4 className="text-sm font-bold text-slate-700">No submissions found</h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {subFilter === 'submitted'
+                ? 'Great job! There are no pending task submissions waiting for review.'
+                : 'No task records matching this filter.'}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {submissions.map((sub) => {
+              const isPending = sub.status === 'submitted';
+              const isApproved = sub.status === 'approved';
+              const isRejected = sub.status === 'needs_correction' || sub.status === 'rejected';
+
+              return (
+                <div
+                  key={sub.id}
+                  className={`bg-white border-2 rounded-xl p-4 sm:p-5 shadow-xs transition-all ${
+                    isPending ? 'border-amber-300 bg-amber-50/15' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900">{sub.student_name}</span>
+                        <span className="text-xs text-slate-400">&bull; {sub.student_email}</span>
+                      </div>
+                      <h4 className="text-xs font-semibold text-slate-700 mt-0.5">
+                        Day {sub.task_day}: {sub.task_title}
+                      </h4>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+                        {new Date(sub.updated_at || sub.submitted_at).toLocaleDateString()}
+                      </span>
+                      {isApproved && (
+                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          Approved
+                        </span>
+                      )}
+                      {isPending && (
+                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          Pending Review
+                        </span>
+                      )}
+                      {isRejected && (
+                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-red-100 text-red-800 border border-red-300">
+                          Needs Correction
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Proof Links & Student Notes */}
+                  <div className="py-3 space-y-2">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                      Submitted Social Media & Proof Links:
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {sub.fb_link && (
+                        <a
+                          href={sub.fb_link.startsWith('http') ? sub.fb_link : `https://${sub.fb_link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100"
+                        >
+                          <Facebook className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Facebook Post</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                        </a>
+                      )}
+                      {sub.yt_link && (
+                        <a
+                          href={sub.yt_link.startsWith('http') ? sub.yt_link : `https://${sub.yt_link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-800 border border-red-200 hover:bg-red-100"
+                        >
+                          <Youtube className="w-3.5 h-3.5 text-red-600" />
+                          <span>YouTube Video</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                        </a>
+                      )}
+                      {sub.li_link && (
+                        <a
+                          href={sub.li_link.startsWith('http') ? sub.li_link : `https://${sub.li_link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100"
+                        >
+                          <Linkedin className="w-3.5 h-3.5 text-sky-600" />
+                          <span>LinkedIn Post</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                        </a>
+                      )}
+                      {sub.insta_link && (
+                        <a
+                          href={sub.insta_link.startsWith('http') ? sub.insta_link : `https://${sub.insta_link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-pink-50 text-pink-800 border border-pink-200 hover:bg-pink-100"
+                        >
+                          <Instagram className="w-3.5 h-3.5 text-pink-600" />
+                          <span>Instagram</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                        </a>
+                      )}
+                      {sub.other_link && (
+                        <a
+                          href={sub.other_link.startsWith('http') ? sub.other_link : `https://${sub.other_link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-800 border border-slate-300 hover:bg-slate-200"
+                        >
+                          <span>Other Link</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                        </a>
+                      )}
+                      {sub.file_url && (
+                        <a
+                          href={sub.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>{sub.file_name || 'View File'}</span>
+                          <ExternalLink className="w-3 h-3 text-slate-400" />
+                        </a>
+                      )}
+                    </div>
+
+                    {sub.student_notes && (
+                      <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-700 font-mono">
+                        <span className="font-bold text-slate-500 uppercase text-[10px] block">
+                          Student Notes:
+                        </span>
+                        {sub.student_notes}
+                      </div>
+                    )}
+
+                    {sub.reviewer_feedback && (
+                      <div className="p-2.5 bg-red-50 rounded-lg border border-red-200 text-xs text-red-900">
+                        <span className="font-bold text-red-800 uppercase text-[10px] block">
+                          Feedback:
+                        </span>
+                        {sub.reviewer_feedback}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reject Prompt (if currently rejecting this submission) */}
+                  {rejectingSubId === sub.id && (
+                    <div className="p-3 bg-red-50/70 border border-red-200 rounded-xl space-y-2 my-2 animate-in fade-in">
+                      <label className="block text-xs font-bold text-red-900">
+                        Reason / Feedback to Student for Correction:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 'Please tag 10 friends on Facebook and set post to Public.'"
+                        value={rejectFeedback}
+                        onChange={(e) => setRejectFeedback(e.target.value)}
+                        className="w-full text-xs p-2.5 border rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-red-500"
+                      />
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRejectingSubId(null);
+                            setRejectFeedback('');
+                          }}
+                          className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-200 rounded-md cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRejectSubmission(sub.id, sub.student_name)}
+                          className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-md shadow-xs cursor-pointer"
+                        >
+                          Confirm Rejection
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Owner Action Buttons */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      disabled={actionLoadingId === sub.id}
+                      onClick={() => handleApproveSubmission(sub.id, sub.student_name)}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer ${
+                        isApproved
+                          ? 'bg-emerald-700 opacity-80 cursor-default'
+                          : 'bg-emerald-600 hover:bg-emerald-700'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{isApproved ? 'Approved ✓' : 'Approve Task'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={actionLoadingId === sub.id}
+                      onClick={() => {
+                        setRejectingSubId(sub.id);
+                        setRejectFeedback('');
+                      }}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer ${
+                        isRejected
+                          ? 'bg-red-700 opacity-80 cursor-default'
+                          : 'bg-red-600 hover:bg-red-700'
+                      }`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>{isRejected ? 'Rejected ✕' : 'Reject Task'}</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SECTION 2: SIMPLE STUDENT REGISTRATION (3 DETAILS ONLY)                  */}
+      {/* ========================================================================= */}
+      <div id="registration-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
@@ -567,9 +1023,9 @@ export const OwnerDashboardPage: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 2: TEACHER REGISTRATION & MANAGEMENT                             */}
+      {/* SECTION 3: TEACHER REGISTRATION & MANAGEMENT                             */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      <div id="teachers-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
@@ -764,310 +1220,9 @@ export const OwnerDashboardPage: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 3: TASK SUBMISSIONS & APPROVAL REVIEW (DIRECT APPROVE / REJECT)   */}
+      {/* SECTION 4: STUDENT REGISTRATION DETAILS & PROGRESS REPORTS               */}
       {/* ========================================================================= */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                Task Submissions & Approval Review
-              </h3>
-              <p className="text-xs text-slate-500">
-                Review student task submissions. Click Approve or Reject to update student dashboard immediately.
-              </p>
-            </div>
-          </div>
-
-          {/* Filter Status Buttons */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => setSubFilter('submitted')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                subFilter === 'submitted'
-                  ? 'bg-amber-500 text-slate-950 shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Pending Review ({submissions.filter((s) => s.status === 'submitted').length})
-            </button>
-
-            <button
-              onClick={() => setSubFilter('approved')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                subFilter === 'approved'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Approved
-            </button>
-
-            <button
-              onClick={() => setSubFilter('rejected')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                subFilter === 'rejected'
-                  ? 'bg-red-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Needs Correction
-            </button>
-
-            <button
-              onClick={() => setSubFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                subFilter === 'all'
-                  ? 'bg-slate-800 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              All
-            </button>
-          </div>
-        </div>
-
-        {/* Submissions List */}
-        {loadingSubmissions ? (
-          <div className="text-center py-12">
-            <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mx-auto mb-2" />
-            <p className="text-xs text-slate-500">Loading task submissions...</p>
-          </div>
-        ) : submissions.length === 0 ? (
-          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-            <CheckCircle2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <h4 className="text-sm font-bold text-slate-700">No submissions found</h4>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {subFilter === 'submitted'
-                ? 'Great job! There are no pending task submissions waiting for review.'
-                : 'No task records matching this filter.'}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {submissions.map((sub) => {
-              const isPending = sub.status === 'submitted';
-              const isApproved = sub.status === 'approved';
-              const isRejected = sub.status === 'needs_correction' || sub.status === 'rejected';
-
-              return (
-                <div
-                  key={sub.id}
-                  className="bg-white border rounded-xl p-4 sm:p-5 shadow-xs hover:border-slate-300 transition-all"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-900">{sub.student_name}</span>
-                        <span className="text-xs text-slate-400">&bull; {sub.student_email}</span>
-                      </div>
-                      <h4 className="text-xs font-semibold text-slate-700 mt-0.5">
-                        Day {sub.task_day}: {sub.task_title}
-                      </h4>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono text-slate-400 tabular-nums">
-                        {new Date(sub.updated_at || sub.submitted_at).toLocaleDateString()}
-                      </span>
-                      {isApproved && (
-                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          Approved
-                        </span>
-                      )}
-                      {isPending && (
-                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                          Pending Review
-                        </span>
-                      )}
-                      {isRejected && (
-                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-red-100 text-red-800 border border-red-300">
-                          Needs Correction
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Proof Links & Student Notes */}
-                  <div className="py-3 space-y-2">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                      Submitted Social Media & Proof Links:
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      {sub.fb_link && (
-                        <a
-                          href={sub.fb_link.startsWith('http') ? sub.fb_link : `https://${sub.fb_link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-800 border border-blue-200 hover:bg-blue-100"
-                        >
-                          <Facebook className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Facebook Post</span>
-                          <ExternalLink className="w-3 h-3 text-slate-400" />
-                        </a>
-                      )}
-                      {sub.yt_link && (
-                        <a
-                          href={sub.yt_link.startsWith('http') ? sub.yt_link : `https://${sub.yt_link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-800 border border-red-200 hover:bg-red-100"
-                        >
-                          <Youtube className="w-3.5 h-3.5 text-red-600" />
-                          <span>YouTube Video</span>
-                          <ExternalLink className="w-3 h-3 text-slate-400" />
-                        </a>
-                      )}
-                      {sub.li_link && (
-                        <a
-                          href={sub.li_link.startsWith('http') ? sub.li_link : `https://${sub.li_link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100"
-                        >
-                          <Linkedin className="w-3.5 h-3.5 text-sky-600" />
-                          <span>LinkedIn Post</span>
-                          <ExternalLink className="w-3 h-3 text-slate-400" />
-                        </a>
-                      )}
-                      {sub.insta_link && (
-                        <a
-                          href={sub.insta_link.startsWith('http') ? sub.insta_link : `https://${sub.insta_link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-pink-50 text-pink-800 border border-pink-200 hover:bg-pink-100"
-                        >
-                          <Instagram className="w-3.5 h-3.5 text-pink-600" />
-                          <span>Instagram</span>
-                          <ExternalLink className="w-3 h-3 text-slate-400" />
-                        </a>
-                      )}
-                      {sub.other_link && (
-                        <a
-                          href={sub.other_link.startsWith('http') ? sub.other_link : `https://${sub.other_link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-800 border border-slate-300 hover:bg-slate-200"
-                        >
-                          <span>Other Link</span>
-                          <ExternalLink className="w-3 h-3 text-slate-400" />
-                        </a>
-                      )}
-                      {sub.file_url && (
-                        <a
-                          href={sub.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100"
-                        >
-                          <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>{sub.file_name || 'View File'}</span>
-                          <ExternalLink className="w-3 h-3 text-slate-400" />
-                        </a>
-                      )}
-                    </div>
-
-                    {sub.student_notes && (
-                      <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-700 font-mono">
-                        <span className="font-bold text-slate-500 uppercase text-[10px] block">
-                          Student Notes:
-                        </span>
-                        {sub.student_notes}
-                      </div>
-                    )}
-
-                    {sub.reviewer_feedback && (
-                      <div className="p-2.5 bg-red-50 rounded-lg border border-red-200 text-xs text-red-900">
-                        <span className="font-bold text-red-800 uppercase text-[10px] block">
-                          Feedback:
-                        </span>
-                        {sub.reviewer_feedback}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Reject Prompt (if currently rejecting this submission) */}
-                  {rejectingSubId === sub.id && (
-                    <div className="p-3 bg-red-50/70 border border-red-200 rounded-xl space-y-2 my-2 animate-in fade-in">
-                      <label className="block text-xs font-bold text-red-900">
-                        Reason / Feedback to Student for Correction:
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 'Please tag 10 friends on Facebook and set post to Public.'"
-                        value={rejectFeedback}
-                        onChange={(e) => setRejectFeedback(e.target.value)}
-                        className="w-full text-xs p-2.5 border rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-red-500"
-                      />
-                      <div className="flex items-center gap-2 justify-end">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRejectingSubId(null);
-                            setRejectFeedback('');
-                          }}
-                          className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-200 rounded-md"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRejectSubmission(sub.id, sub.student_name)}
-                          className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-md shadow-xs"
-                        >
-                          Confirm Rejection
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Owner Action Buttons */}
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                    <button
-                      type="button"
-                      disabled={actionLoadingId === sub.id}
-                      onClick={() => handleApproveSubmission(sub.id, sub.student_name)}
-                      className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer ${
-                        isApproved
-                          ? 'bg-emerald-700 opacity-80 cursor-default'
-                          : 'bg-emerald-600 hover:bg-emerald-700'
-                      }`}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{isApproved ? 'Approved ✓' : 'Approve Task'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={actionLoadingId === sub.id}
-                      onClick={() => {
-                        setRejectingSubId(sub.id);
-                        setRejectFeedback('');
-                      }}
-                      className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer ${
-                        isRejected
-                          ? 'bg-red-700 opacity-80 cursor-default'
-                          : 'bg-red-600 hover:bg-red-700'
-                      }`}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>{isRejected ? 'Rejected ✕' : 'Reject Task'}</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION 3: STUDENT REGISTRATION DETAILS & PROGRESS REPORTS               */}
-      {/* ========================================================================= */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+      <div id="students-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold">

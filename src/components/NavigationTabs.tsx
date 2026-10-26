@@ -15,6 +15,7 @@ import {
   UserPlus,
   ClipboardList,
 } from 'lucide-react';
+import { api } from '../services/api';
 import type { SubmissionSummary } from '../types';
 
 export type NavTab =
@@ -50,6 +51,22 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
   summary,
 }) => {
   const { user, isOwner, isAdmin, isTeacher } = useAuth();
+  const [globalPendingSubCount, setGlobalPendingSubCount] = React.useState<number>(0);
+
+  React.useEffect(() => {
+    if (!isOwner && !isAdmin && !isTeacher) return;
+    const fetchPendingCount = async () => {
+      try {
+        const res = await api.getReviewQueue({ status: 'submitted' });
+        setGlobalPendingSubCount(res.submissions?.length || 0);
+      } catch (err) {
+        // silent
+      }
+    };
+    fetchPendingCount();
+    const interval = setInterval(fetchPendingCount, 2500);
+    return () => clearInterval(interval);
+  }, [isOwner, isAdmin, isTeacher]);
 
   const isSelected = (tab: NavTab) => activeTab === tab;
 
@@ -71,6 +88,11 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
           >
             <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
             <span>Owner Dashboard</span>
+            {globalPendingSubCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-pulse">
+                {globalPendingSubCount} New
+              </span>
+            )}
           </button>
         )}
 
@@ -185,13 +207,18 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
         )}
 
         {/* Review Queue (for Teacher, Admin, Owner) */}
-        {isTeacher && (
+        {(isTeacher || isOwner || isAdmin) && (
           <button
             onClick={() => onTabChange('review_queue')}
             className={btnClass('review_queue', 'bg-indigo-700 text-white font-bold')}
           >
             <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
             <span>Review Queue</span>
+            {globalPendingSubCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-pulse">
+                {globalPendingSubCount}
+              </span>
+            )}
           </button>
         )}
 

@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
 import { queryOne, execute, logAudit, getSetting, ensureDatabaseInitialized } from '../db.js';
 import { hashPassword, verifyPassword, createToken, authMiddleware, type AuthRequest } from '../auth.js';
-import type { User } from '../types.js';
+import type { User, StudentAdmission } from '../types.js';
 
 export const authRouter = Router();
 

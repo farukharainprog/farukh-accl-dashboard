@@ -292,11 +292,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Pending Review</span>
+              <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Pending Tasks</span>
               <Clock className="w-4 h-4 text-amber-600" />
             </div>
             <p className="text-2xl font-black text-amber-950 mt-1 font-mono tabular-nums">{pendingCount}</p>
-            <p className="text-[10px] text-amber-700 mt-0.5">Under Owner Review</p>
+            <p className="text-[10px] text-amber-700 mt-0.5">Awaiting Owner Approval</p>
           </button>
 
           <button
@@ -679,10 +679,31 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <SubmitTaskModal
           task={activeTaskForSubmit}
           onClose={() => setActiveTaskForSubmit(null)}
-          onSuccess={() => {
-            fetchDashboardData();
+          onSuccess={(subData?: any) => {
+            const taskId = activeTaskForSubmit.id;
+            // Optimistically update the task state immediately to 'submitted' (Pending Task)
+            setTasks((prev) =>
+              prev.map((t) => {
+                if (t.id === taskId) {
+                  return {
+                    ...t,
+                    submission: {
+                      ...(t.submission || {}),
+                      ...(subData || {}),
+                      status: 'submitted',
+                      task_id: taskId,
+                      user_id: user?.id || 0,
+                      version: ((t.submission?.version || 0) + 1),
+                    } as any,
+                  };
+                }
+                return t;
+              })
+            );
             setActiveTaskForSubmit(null);
-            setActionSuccessMsg('Task submitted successfully! It has been placed in the Review Queue.');
+            setActionSuccessMsg('Task submitted successfully! Status is now "Pending Task" awaiting Owner Approval.');
+            // Refetch fresh data from server in background
+            fetchDashboardData(true);
           }}
         />
       )}

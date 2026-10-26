@@ -36,37 +36,51 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     switch (status) {
       case 'approved':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             Approved
           </span>
         );
       case 'submitted':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
-            <Clock className="w-3.5 h-3.5 text-amber-600" />
-            Pending
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-400 shadow-xs">
+            <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-pulse" />
+            Pending Task
           </span>
         );
       case 'needs_correction':
       case 'rejected':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-red-100 text-red-800 border border-red-300">
-            <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-red-100 text-red-800 border border-red-300 shadow-xs">
+            <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
             Needs Correction
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
             Not Started
           </span>
         );
     }
   };
 
+  const getCardBorderClass = () => {
+    switch (status) {
+      case 'approved':
+        return 'border-emerald-300 bg-emerald-50/15 shadow-emerald-100/50';
+      case 'submitted':
+        return 'border-amber-300 bg-amber-50/20 shadow-amber-100/50';
+      case 'needs_correction':
+      case 'rejected':
+        return 'border-red-300 bg-red-50/15 shadow-red-100/50';
+      default:
+        return 'border-slate-200 bg-white hover:border-slate-300';
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow p-5 flex flex-col justify-between">
+    <div className={`rounded-xl border shadow-xs hover:shadow-md transition-all p-5 flex flex-col justify-between ${getCardBorderClass()}`}>
       <div>
         {/* Card Header: Day and Title + Status */}
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
@@ -252,17 +266,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {status === 'submitted' && (
             <button
               onClick={() => onSubmitClick(task)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-colors cursor-pointer shadow-xs"
+              title="Task is awaiting owner approval. Click to view or update links if needed."
             >
-              <span>View / Edit Draft</span>
+              <Clock className="w-3.5 h-3.5 text-amber-600" />
+              <span>Pending Review (Edit Links)</span>
             </button>
           )}
 
           {status === 'approved' && (
-            <span className="flex items-center gap-1 text-xs font-bold text-emerald-700">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-xs">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Completed</span>
-            </span>
+              <span>Approved by Owner</span>
+            </div>
           )}
         </div>
       </div>

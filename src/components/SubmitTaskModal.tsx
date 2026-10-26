@@ -18,7 +18,7 @@ import {
 interface SubmitTaskModalProps {
   task: TaskItem;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (subData?: any) => void;
 }
 
 export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({
@@ -72,7 +72,7 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({
 
     setSubmitting(true);
     try {
-      await api.submitTask({
+      const payload = {
         task_id: task.id,
         fb_link: fbLink.trim() || undefined,
         yt_link: ytLink.trim() || undefined,
@@ -82,9 +82,15 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({
         file_url: fileUrl.trim() || undefined,
         file_name: fileName.trim() || undefined,
         student_notes: notes.trim() || undefined,
-      });
+      };
 
-      onSuccess();
+      const res = await api.submitTask(payload);
+
+      onSuccess({
+        ...payload,
+        submissionId: res?.submissionId,
+        status: 'submitted',
+      });
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message || 'Submission failed. Please check your links.');

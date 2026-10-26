@@ -41,10 +41,10 @@ export const ReviewQueuePage: React.FC = () => {
 
   useEffect(() => {
     fetchQueue();
-    // Real-time synchronization: poll every 8 seconds across different laptops
+    // Real-time synchronization: poll every 2 seconds across devices
     const interval = setInterval(() => {
       fetchQueue(true);
-    }, 8000);
+    }, 2000);
     return () => clearInterval(interval);
   }, [statusFilter, bookFilter]);
 

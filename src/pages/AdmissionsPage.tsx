@@ -10,6 +10,7 @@ import {
   Send,
   Shield,
   MessageCircle,
+  AlertCircle,
 } from 'lucide-react';
 
 export const AdmissionsPage: React.FC = () => {
