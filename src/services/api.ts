@@ -576,12 +576,14 @@ export const api = {
       async () => {
         const res = await serverRequest<any>(`/attendance/history${qs}`);
         const serverItems = (res as any)?.sessions || (res as any)?.history || [];
-        return { sessions: mergeSessions(serverItems) };
+        const merged = mergeSessions(serverItems);
+        return { sessions: merged, history: merged };
       },
       async () => {
         const local = await storageService.getAttendanceHistory(studentId);
         const localItems = (local as any)?.sessions || (local as any)?.history || [];
-        return { sessions: mergeSessions(localItems) };
+        const merged = mergeSessions(localItems);
+        return { sessions: merged, history: merged };
       }
     );
   },
