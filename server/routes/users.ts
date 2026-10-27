@@ -6,8 +6,8 @@ import type { User } from '../types.js';
 
 export const usersRouter = Router();
 
-// List all teachers (for dropdowns / assignment)
-usersRouter.get('/teachers-list', authMiddleware, (_req, res: Response) => {
+// List all teachers (for dropdowns / assignment / teacher tabs)
+const listTeachersHandler = (_req: any, res: Response) => {
   const teachers = queryAll(`
     SELECT id, full_name, email, whatsapp, can_approve, can_admit
     FROM users
@@ -15,7 +15,10 @@ usersRouter.get('/teachers-list', authMiddleware, (_req, res: Response) => {
     ORDER BY full_name ASC
   `);
   res.json({ teachers });
-});
+};
+
+usersRouter.get('/teachers-list', authMiddleware, listTeachersHandler);
+usersRouter.get('/teachers', authMiddleware, listTeachersHandler);
 
 // Owner/Admin: List all users
 usersRouter.get('/', authMiddleware, requireRole('owner', 'admin', 'teacher'), (req: AuthRequest, res: Response) => {
@@ -303,9 +306,14 @@ usersRouter.get('/students-overview', authMiddleware, requireRole('owner', 'admi
         SUM(CASE WHEN s.status = 'approved' THEN 1 ELSE 0 END) as approved_count,
         SUM(CASE WHEN s.status = 'submitted' THEN 1 ELSE 0 END) as pending_count,
         SUM(CASE WHEN s.status IN ('needs_correction', 'rejected') THEN 1 ELSE 0 END) as rejected_count,
-        MAX(s.updated_at) as last_submission_at
+        MAX(s.updated_at) as last_submission_at,
+        COUNT(DISTINCT a.date_key) as attendance_days,
+        COALESCE(SUM(a.duration_minutes), 0) as attendance_minutes,
+        MAX(CASE WHEN a.status = 'active' THEN 1 ELSE 0 END) as is_checked_in,
+        MAX(a.check_in_local) as last_check_in_local
       FROM users u
       LEFT JOIN submissions s ON u.id = s.student_id
+      LEFT JOIN attendance_sessions a ON u.id = a.student_id
       WHERE u.role = 'student' ${filterClause}
       GROUP BY u.id
       ORDER BY u.created_at DESC
@@ -316,6 +324,7 @@ usersRouter.get('/students-overview', authMiddleware, requireRole('owner', 'admi
     const students = rows.map((r) => {
       const approved = Number(r.approved_count || 0);
       const progressPercent = totalBook1 > 0 ? Math.min(100, Math.round((approved / totalBook1) * 100)) : 0;
+      const attMins = Number(r.attendance_minutes || 0);
       return {
         id: r.id,
         full_name: r.full_name,
@@ -330,6 +339,11 @@ usersRouter.get('/students-overview', authMiddleware, requireRole('owner', 'admi
         rejected_count: Number(r.rejected_count || 0),
         progress_percent: progressPercent,
         last_submission_at: r.last_submission_at,
+        attendance_days: Number(r.attendance_days || 0),
+        attendance_minutes: attMins,
+        attendance_hours: (attMins / 60).toFixed(1),
+        is_checked_in: Boolean(r.is_checked_in),
+        last_check_in_local: r.last_check_in_local || null,
       };
     });
 
@@ -451,6 +465,27 @@ usersRouter.post('/clear-dummy-students', authMiddleware, requireRole('owner'), 
   } catch (error: any) {
     console.error('[Clear Dummy Students Error]:', error);
     res.status(500).json({ error: error.message || 'Failed to clear dummy students.' });
+  }
+});
+
+// Owner: Clear all student records so owner can register real students fresh
+usersRouter.post('/clear-all-students', authMiddleware, requireRole('owner'), (req: AuthRequest, res: Response) => {
+  try {
+    const actor = req.user!;
+    execute("DELETE FROM users WHERE role = 'student'");
+    execute("DELETE FROM student_admissions");
+    execute("DELETE FROM submissions");
+    execute("DELETE FROM submission_history");
+    execute("DELETE FROM attendance_sessions");
+
+    logAudit(actor.id, actor.full_name, actor.role, 'ALL_STUDENTS_CLEARED', 'Owner reset student portal to add real students fresh');
+
+    res.json({
+      message: 'All student accounts, task submissions, and admissions have been cleared. You can now register your real students fresh!',
+    });
+  } catch (error: any) {
+    console.error('[Clear All Students Error]:', error);
+    res.status(500).json({ error: error.message || 'Failed to clear student accounts.' });
   }
 });
 

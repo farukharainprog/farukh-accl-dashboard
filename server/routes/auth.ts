@@ -358,7 +358,7 @@ authRouter.post('/login', (req, res: Response) => {
 });
 
 // Google / Gmail Sign-In (no password required for authorized students and owner)
-authRouter.post('/google-login', (req, res: Response) => {
+const googleLoginHandler = (req: any, res: Response) => {
   try {
     ensureDatabaseInitialized();
     const { email, full_name } = req.body || {};
@@ -482,7 +482,10 @@ authRouter.post('/google-login', (req, res: Response) => {
     console.error('[Google Login Error]:', error);
     res.status(500).json({ error: error.message || 'Google sign-in failed due to a server error.' });
   }
-});
+};
+
+authRouter.post('/google-login', googleLoginHandler);
+authRouter.post('/google', googleLoginHandler);
 
 // Get current profile
 authRouter.get('/me', authMiddleware, (req: AuthRequest, res: Response) => {

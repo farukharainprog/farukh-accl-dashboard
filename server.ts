@@ -5,6 +5,13 @@ import dotenv from 'dotenv';
 import app from './server/app.js';
 import { ensureDatabaseInitialized } from './server/db.js';
 
+// Suppress Node.js ExperimentalWarning (e.g. SQLite built-in module)
+process.removeAllListeners('warning');
+process.on('warning', (warning) => {
+  if (warning.name === 'ExperimentalWarning') return;
+  console.warn(warning.name, warning.message);
+});
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);

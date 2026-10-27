@@ -1852,45 +1852,12 @@ export const storageService = {
   // Permanent Cross-Device Synchronization Helpers
   mergeAdmissions(serverAdmissions: any[]): void {
     if (!Array.isArray(serverAdmissions)) return;
-    const local = getStore<any[]>(KEYS.ADMISSIONS, []);
-    const localMap = new Map(local.map((a) => [a.email?.toLowerCase().trim() || a.id, a]));
-
-    for (const sa of serverAdmissions) {
-      const key = sa.email?.toLowerCase().trim() || sa.id;
-      const existing = localMap.get(key);
-      if (!existing) {
-        localMap.set(key, sa);
-      } else {
-        // Favor approved status or newer status
-        localMap.set(key, {
-          ...existing,
-          ...sa,
-          status: existing.status === 'approved' || sa.status === 'approved' ? 'approved' : sa.status,
-        });
-      }
-    }
-    setStore(KEYS.ADMISSIONS, Array.from(localMap.values()));
+    setStore(KEYS.ADMISSIONS, serverAdmissions);
   },
 
   mergeUsers(serverUsers: any[]): void {
     if (!Array.isArray(serverUsers)) return;
-    const local = getStore<any[]>(KEYS.USERS, []);
-    const localMap = new Map(local.map((u) => [u.email?.toLowerCase().trim() || u.id, u]));
-
-    for (const su of serverUsers) {
-      const key = su.email?.toLowerCase().trim() || su.id;
-      const existing = localMap.get(key);
-      if (!existing) {
-        localMap.set(key, su);
-      } else {
-        localMap.set(key, {
-          ...existing,
-          ...su,
-          status: existing.status === 'active' || su.status === 'active' ? 'active' : su.status,
-        });
-      }
-    }
-    setStore(KEYS.USERS, Array.from(localMap.values()));
+    setStore(KEYS.USERS, serverUsers);
   },
 
   saveUserLocally(userProfile: UserProfile, password?: string): void {

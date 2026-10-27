@@ -31,6 +31,7 @@ import {
   Trash2,
   Plus,
   Bell,
+  CalendarCheck,
 } from 'lucide-react';
 
 export const OwnerDashboardPage: React.FC = () => {
@@ -238,9 +239,28 @@ export const OwnerDashboardPage: React.FC = () => {
     }
   };
 
+  // Attendance Modal state for reviewing individual student attendance logs
+  const [selectedStudentForAttendance, setSelectedStudentForAttendance] = useState<any | null>(null);
+  const [studentAttendanceLogs, setStudentAttendanceLogs] = useState<any[]>([]);
+  const [loadingAttendanceLogs, setLoadingAttendanceLogs] = useState(false);
+
+  const handleOpenAttendanceModal = async (student: any) => {
+    setSelectedStudentForAttendance(student);
+    setLoadingAttendanceLogs(true);
+    try {
+      const res = await api.getAttendanceHistory(student.id);
+      setStudentAttendanceLogs(res?.history || []);
+    } catch (err) {
+      console.warn('Failed to fetch student attendance logs:', err);
+      setStudentAttendanceLogs([]);
+    } finally {
+      setLoadingAttendanceLogs(false);
+    }
+  };
+
   // Handle Clear Dummy Students
   const handleClearDummyStudents = async () => {
-    if (!confirm('Are you sure you want to clean all dummy and test student admission entries? Approved students with real assignments will be preserved.')) return;
+    if (!confirm('Are you sure you want to clean all dummy and test student admission entries? Real students will be preserved.')) return;
     try {
       const res = await api.clearDummyStudents();
       setActionNotice({
@@ -250,6 +270,22 @@ export const OwnerDashboardPage: React.FC = () => {
       await fetchStudents(false);
     } catch (err: any) {
       setActionNotice({ type: 'error', text: err.message || 'Failed to clear dummy entries' });
+    }
+  };
+
+  // Handle Reset / Clear All Students (Fresh Start)
+  const handleClearAllStudents = async () => {
+    if (!confirm('Are you sure you want to reset and clear all student accounts? This will give you a completely clean, fresh database so you can register your real students.')) return;
+    try {
+      const res = await api.clearAllStudents();
+      setActionNotice({
+        type: 'success',
+        text: res.message || 'All student accounts cleared. You can now register real students fresh!',
+      });
+      await fetchStudents(false);
+      await fetchSubmissions(false);
+    } catch (err: any) {
+      setActionNotice({ type: 'error', text: err.message || 'Failed to reset students' });
     }
   };
 
@@ -571,7 +607,7 @@ export const OwnerDashboardPage: React.FC = () => {
           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all shadow-xs"
         >
           <UserPlus className="w-3.5 h-3.5 text-blue-600" />
-          <span>Register Student (3 Details)</span>
+          <span>Register Student (Unlimited)</span>
         </a>
 
         <a
@@ -901,7 +937,7 @@ export const OwnerDashboardPage: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 2: SIMPLE STUDENT REGISTRATION (3 DETAILS ONLY)                  */}
+      {/* SECTION 2: REGISTER STUDENT (UNLIMITED STUDENTS ALLOWED)                  */}
       {/* ========================================================================= */}
       <div id="registration-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
@@ -910,11 +946,16 @@ export const OwnerDashboardPage: React.FC = () => {
               <UserPlus className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                Register New Student (3 Fields Only)
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                  Register Student (Unlimited)
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                  Unlimited Students
+                </span>
+              </div>
               <p className="text-xs text-slate-500">
-                No password required. Enter student details; they sign in directly using Google Sign-In with their Gmail.
+                You can add unlimited students anytime. Only 3 simple details needed (Student Name, WhatsApp Number, Gmail) — no student passwords needed. Students sign in directly with their own Google / Gmail account.
               </p>
             </div>
           </div>
@@ -1238,16 +1279,39 @@ export const OwnerDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Search Box */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by name, email, WhatsApp..."
-              value={studentSearch}
-              onChange={(e) => setStudentSearch(e.target.value)}
-              className="w-full text-xs pl-8 pr-3 py-2 border rounded-xl bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            />
+          {/* Header Controls */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClearDummyStudents}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer border border-slate-200"
+              title="Clean test or dummy registrations"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-slate-500" />
+              <span>Clean Dummy Data</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClearAllStudents}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-xl transition-colors cursor-pointer border border-red-200"
+              title="Reset all student data so you can register fresh real students"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+              <span>Reset All Students</span>
+            </button>
+
+            {/* Search Box */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search name, email, WhatsApp..."
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                className="w-full text-xs pl-8 pr-3 py-2 border rounded-xl bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
         </div>
 
@@ -1259,9 +1323,9 @@ export const OwnerDashboardPage: React.FC = () => {
         ) : filteredStudents.length === 0 ? (
           <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
             <User className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <h4 className="text-sm font-bold text-slate-700">No students found</h4>
+            <h4 className="text-sm font-bold text-slate-700">No students registered</h4>
             <p className="text-xs text-slate-500 mt-0.5">
-              Use the registration form above to add your first student.
+              Use the registration form above to add your real students. Each student will immediately have permanent access!
             </p>
           </div>
         ) : (
@@ -1272,6 +1336,7 @@ export const OwnerDashboardPage: React.FC = () => {
                   <th className="py-3 px-3">Student Details</th>
                   <th className="py-3 px-3">WhatsApp</th>
                   <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3">Attendance</th>
                   <th className="py-3 px-3">Approved</th>
                   <th className="py-3 px-3">Pending</th>
                   <th className="py-3 px-3">Rejected</th>
@@ -1322,6 +1387,21 @@ export const OwnerDashboardPage: React.FC = () => {
                         </span>
                       </td>
 
+                      {/* Attendance Summary */}
+                      <td className="py-3.5 px-3">
+                        {s.is_checked_in ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Online / In Class
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 font-medium">Checked Out</span>
+                        )}
+                        <div className="text-[10px] text-slate-600 mt-0.5 font-medium">
+                          {s.attendance_days || 0} days &bull; {s.attendance_hours || '0.0'} hrs
+                        </div>
+                      </td>
+
                       <td className="py-3.5 px-3 font-mono font-bold text-emerald-700 tabular-nums">
                         {s.approved_count}
                       </td>
@@ -1348,17 +1428,29 @@ export const OwnerDashboardPage: React.FC = () => {
                       </td>
 
                       <td className="py-3.5 px-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleStudentStatus(s.id, s.status, s.full_name)}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                            s.status === 'active'
-                              ? 'bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-700'
-                              : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
-                          }`}
-                        >
-                          {s.status === 'active' ? 'Suspend' : 'Activate'}
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAttendanceModal(s)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer"
+                            title="View student check-in/out records"
+                          >
+                            <CalendarCheck className="w-3.5 h-3.5" />
+                            <span>Attendance</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStudentStatus(s.id, s.status, s.full_name)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                              s.status === 'active'
+                                ? 'bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-700 border border-slate-200'
+                                : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-200'
+                            }`}
+                          >
+                            {s.status === 'active' ? 'Suspend' : 'Activate'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1368,6 +1460,132 @@ export const OwnerDashboardPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* ATTENDANCE LOG MODAL (OWNER VIEW OF STUDENT ATTENDANCE)                  */}
+      {/* ========================================================================= */}
+      {selectedStudentForAttendance && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full my-8 overflow-hidden text-slate-800 border border-slate-200">
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block">
+                  Student Attendance Records
+                </span>
+                <h3 className="text-base font-bold text-white">
+                  {selectedStudentForAttendance.full_name} ({selectedStudentForAttendance.email})
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedStudentForAttendance(null)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Quick Summary Pill */}
+              <div className="grid grid-cols-3 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-center">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Days Present</span>
+                  <span className="text-lg font-black text-slate-900">{selectedStudentForAttendance.attendance_days || 0}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Study Hours</span>
+                  <span className="text-lg font-black text-blue-700">{selectedStudentForAttendance.attendance_hours || '0.0'} hrs</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Current Status</span>
+                  {selectedStudentForAttendance.is_checked_in ? (
+                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                      Online Now
+                    </span>
+                  ) : (
+                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-700">
+                      Checked Out
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Attendance Log Table */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  Recent Check-In & Check-Out Sessions (Asia/Karachi PKT)
+                </h4>
+
+                {loadingAttendanceLogs ? (
+                  <div className="py-8 text-center text-xs text-slate-500">
+                    <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                    <span>Loading attendance logs...</span>
+                  </div>
+                ) : studentAttendanceLogs.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500">
+                    <CalendarCheck className="w-8 h-8 text-slate-400 mx-auto mb-1.5 opacity-60" />
+                    <p className="font-semibold text-slate-700">No attendance records yet</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      When this student clicks &quot;Check In&quot; from their portal, their study sessions will appear here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold">
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Check-In Time</th>
+                          <th className="py-2.5 px-3">Check-Out Time</th>
+                          <th className="py-2.5 px-3">Duration</th>
+                          <th className="py-2.5 px-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {studentAttendanceLogs.map((log) => (
+                          <tr key={log.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-mono font-medium text-slate-900">{log.date_key}</td>
+                            <td className="py-2 px-3 text-slate-700">{log.check_in_local || new Date(log.check_in_time).toLocaleTimeString()}</td>
+                            <td className="py-2 px-3 text-slate-700">
+                              {log.check_out_local || (log.check_out_time ? new Date(log.check_out_time).toLocaleTimeString() : 'In Progress...')}
+                            </td>
+                            <td className="py-2 px-3 font-mono font-bold text-slate-900">
+                              {log.duration_minutes ? `${log.duration_minutes} min` : 'Active'}
+                            </td>
+                            <td className="py-2 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  log.status === 'completed'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-amber-100 text-amber-800 animate-pulse'
+                                }`}
+                              >
+                                {log.status.toUpperCase()}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedStudentForAttendance(null)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

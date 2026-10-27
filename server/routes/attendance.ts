@@ -174,21 +174,44 @@ attendanceRouter.get('/history', authMiddleware, (req: AuthRequest, res: Respons
     return;
   }
 
-  const targetStudentId = (req.query.student_id as string) || req.user.id;
+  const requestedStudentId = (req.query.student_id as string)?.trim();
 
-  if (req.user.role === 'student' && targetStudentId !== req.user.id) {
-    res.status(403).json({ error: 'Forbidden' });
+  // If role is student, they can only view their own history
+  if (req.user.role === 'student') {
+    const history = queryAll<AttendanceSession>(`
+      SELECT a.*, u.full_name as student_name, u.email as student_email
+      FROM attendance_sessions a
+      JOIN users u ON a.student_id = u.id
+      WHERE a.student_id = ?
+      ORDER BY a.check_in_time DESC
+      LIMIT 100
+    `, req.user.id);
+    res.json({ history });
     return;
   }
 
-  const history = queryAll<AttendanceSession>(`
-    SELECT a.*, u.full_name as student_name
-    FROM attendance_sessions a
-    JOIN users u ON a.student_id = u.id
-    WHERE a.student_id = ?
-    ORDER BY a.check_in_time DESC
-    LIMIT 60
-  `, targetStudentId);
+  // If owner/admin/teacher:
+  let history: any[];
+  if (requestedStudentId) {
+    history = queryAll<AttendanceSession>(`
+      SELECT a.*, u.full_name as student_name, u.email as student_email
+      FROM attendance_sessions a
+      JOIN users u ON a.student_id = u.id
+      WHERE a.student_id = ?
+      ORDER BY a.check_in_time DESC
+      LIMIT 100
+    `, requestedStudentId);
+  } else {
+    // All recent student attendance
+    history = queryAll<AttendanceSession>(`
+      SELECT a.*, u.full_name as student_name, u.email as student_email
+      FROM attendance_sessions a
+      JOIN users u ON a.student_id = u.id
+      WHERE u.role = 'student'
+      ORDER BY a.check_in_time DESC
+      LIMIT 100
+    `);
+  }
 
   res.json({ history });
 });

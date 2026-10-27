@@ -362,41 +362,8 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </div>
               )}
 
-              {/* Student Sign-In Method Selector */}
-              <div className="flex rounded-lg bg-slate-100 p-0.5 mb-5 text-[11px] font-semibold border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStudentAuthType('google');
-                    setStudentError('');
-                  }}
-                  className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                    studentAuthType === 'google'
-                      ? 'bg-white text-blue-700 font-bold shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>Google Sign-In (No Password)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStudentAuthType('password');
-                    setStudentError('');
-                  }}
-                  className={`flex-1 py-1.5 rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                    studentAuthType === 'password'
-                      ? 'bg-white text-blue-700 font-bold shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Lock className="w-3 h-3 text-blue-600" />
-                  <span>Email & Password</span>
-                </button>
-              </div>
-
-              {/* OPTION A: GOOGLE SIGN-IN */}
-              {studentAuthType === 'google' && (
+              {/* Streamlined Student Google / Gmail Sign-In Form */}
+              {!studentAuthType || studentAuthType === 'google' ? (
                 <form onSubmit={handleStudentGoogleSignIn} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -413,7 +380,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                       />
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Enter the Gmail address registered with Farukh Businessman Wala
+                      Enter the Gmail address registered by Farukh Businessman Wala
                     </p>
                   </div>
 
@@ -440,16 +407,26 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                       <span>Signing in securely...</span>
                     ) : (
                       <>
-                        <span>Continue with Google Sign-In</span>
+                        <span>Sign In with Google</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
                   </button>
-                </form>
-              )}
 
-              {/* OPTION B: EMAIL & PASSWORD SIGN-IN */}
-              {studentAuthType === 'password' && (
+                  <div className="text-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStudentAuthType('password');
+                        setStudentError('');
+                      }}
+                      className="text-[11px] text-slate-500 hover:text-blue-700 font-medium underline cursor-pointer"
+                    >
+                      Have an account password? Sign in with password instead
+                    </button>
+                  </div>
+                </form>
+              ) : (
                 <form onSubmit={handleStudentPasswordSignIn} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -478,7 +455,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                       className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
                     />
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Initial default password: <code className="text-blue-700 font-bold bg-blue-50 px-1 py-0.5 rounded">acclStudent@2026</code> (or your chosen password)
+                      Default password: <code className="text-blue-700 font-bold bg-blue-50 px-1 py-0.5 rounded">acclStudent@2026</code>
                     </p>
                   </div>
 
@@ -490,6 +467,19 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                     <Lock className="w-4 h-4" />
                     <span>{studentPassLoading ? 'Signing in...' : 'Sign In with Password'}</span>
                   </button>
+
+                  <div className="text-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStudentAuthType('google');
+                        setStudentError('');
+                      }}
+                      className="text-[11px] text-slate-500 hover:text-blue-700 font-medium underline cursor-pointer"
+                    >
+                      ← Back to Google Sign-In
+                    </button>
+                  </div>
                 </form>
               )}
 

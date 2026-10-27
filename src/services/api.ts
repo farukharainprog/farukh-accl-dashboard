@@ -463,20 +463,9 @@ export const api = {
     return syncRequest(
       async () => {
         const res = await serverRequest<{ users: any[] }>(`/users${queryStr}`);
-        if (res?.users) {
-          storageService.mergeUsers(res.users);
-        }
-        const local = await storageService.getUsers(params);
-        const serverList = res?.users || [];
-        const map = new Map(serverList.map((u: any) => [u.id, u]));
-        for (const lu of (local?.users || [])) {
-          if (!map.has(lu.id)) {
-            map.set(lu.id, lu);
-          } else if (lu.status === 'active' && map.get(lu.id).status !== 'active') {
-            map.set(lu.id, { ...map.get(lu.id), status: 'active' });
-          }
-        }
-        return { users: Array.from(map.values()) };
+        const serverUsers = res?.users || [];
+        storageService.mergeUsers(serverUsers);
+        return { users: serverUsers };
       },
       () => storageService.getUsers(params)
     );
@@ -517,6 +506,20 @@ export const api = {
   clearDummyStudents: async (): Promise<any> => {
     return syncRequest(
       () => serverRequest<any>('/users/clear-dummy-students', { method: 'POST' }),
+      () => storageService.clearDummyStudents()
+    );
+  },
+
+  clearAllStudents: async (): Promise<any> => {
+    return syncRequest(
+      async () => {
+        const res = await serverRequest<any>('/users/clear-all-students', { method: 'POST' });
+        try {
+          storageService.cleanAllAdmissionsLocally?.();
+          storageService.clearDummyStudents?.();
+        } catch {}
+        return res;
+      },
       () => storageService.clearDummyStudents()
     );
   },

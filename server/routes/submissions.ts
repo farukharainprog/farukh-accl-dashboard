@@ -109,28 +109,43 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
     return;
   }
 
-  // Validate at least one valid submission proof is provided
-  const hasLink = Boolean(fb_link?.trim() || yt_link?.trim() || li_link?.trim() || insta_link?.trim() || other_link?.trim());
-  const hasFile = Boolean(file_url?.trim());
-  const hasNotes = Boolean(student_notes?.trim());
+  // Robust URL / proof link cleaner
+  const cleanProofLink = (raw: unknown): string | null => {
+    if (!raw || typeof raw !== 'string') return null;
+    let str = raw.trim();
+    if (!str) return null;
+    // Strip surrounding quotes
+    str = str.replace(/^["'`]|["'`]$/g, '').trim();
+    if (!str) return null;
 
-  if (!hasLink && !hasFile && !hasNotes) {
-    res.status(400).json({ error: 'Please provide at least one proof link, code explanation, or file upload.' });
-    return;
-  }
+    // If mobile pasted share text like: "Check out this video https://youtu.be/xyz"
+    const urlMatch = str.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) {
+      return urlMatch[0];
+    }
 
-  // URL sanity check
-  const links = [fb_link, yt_link, li_link, insta_link, other_link].filter(Boolean);
-  for (const l of links) {
-    if (typeof l === 'string' && l.trim()) {
-      try {
-        const url = new URL(l.trim().startsWith('http') ? l.trim() : `https://${l.trim()}`);
-        if (!url.hostname) throw new Error('Invalid URL');
-      } catch {
-        res.status(400).json({ error: `Invalid URL format: "${l}". Please enter a valid web address.` });
-        return;
+    if (!str.startsWith('http://') && !str.startsWith('https://')) {
+      if (str.includes('.') || str.includes('/')) {
+        return `https://${str}`;
       }
     }
+    return str;
+  };
+
+  const cleanFb = cleanProofLink(fb_link);
+  const cleanYt = cleanProofLink(yt_link);
+  const cleanLi = cleanProofLink(li_link);
+  const cleanInsta = cleanProofLink(insta_link);
+  const cleanOther = cleanProofLink(other_link);
+  const cleanFile = file_url?.trim() || null;
+  const cleanFileName = file_name?.trim() || null;
+  const cleanNotes = student_notes?.trim() || null;
+
+  // Validate at least one valid submission proof or reflection is provided
+  const hasProof = Boolean(cleanFb || cleanYt || cleanLi || cleanInsta || cleanOther || cleanFile || cleanNotes);
+  if (!hasProof) {
+    res.status(400).json({ error: 'Please enter at least one proof link, code explanation, or upload proof.' });
+    return;
   }
 
   // Check if existing submission exists
@@ -196,14 +211,14 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
       WHERE id = ?
     `,
       nextVersion,
-      fb_link?.trim() || null,
-      yt_link?.trim() || null,
-      li_link?.trim() || null,
-      insta_link?.trim() || null,
-      other_link?.trim() || null,
-      file_url?.trim() || null,
-      file_name?.trim() || null,
-      student_notes?.trim() || null,
+      cleanFb,
+      cleanYt,
+      cleanLi,
+      cleanInsta,
+      cleanOther,
+      cleanFile,
+      cleanFileName,
+      cleanNotes,
       now,
       existing.id
     );
@@ -211,7 +226,7 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
     logAudit(req.user.id, req.user.full_name, req.user.role, 'TASK_RESUBMITTED', `Resubmitted task ${task_id} (Version ${nextVersion})`);
 
     res.json({
-      message: 'Task resubmitted successfully! Your revision is now Pending Review.',
+      message: 'Task submitted successfully! Your submission is now in the Owner review queue.',
       submissionId: existing.id,
       version: nextVersion,
       status: 'submitted',
@@ -226,14 +241,14 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
       id,
       studentId,
       task_id,
-      fb_link?.trim() || null,
-      yt_link?.trim() || null,
-      li_link?.trim() || null,
-      insta_link?.trim() || null,
-      other_link?.trim() || null,
-      file_url?.trim() || null,
-      file_name?.trim() || null,
-      student_notes?.trim() || null,
+      cleanFb,
+      cleanYt,
+      cleanLi,
+      cleanInsta,
+      cleanOther,
+      cleanFile,
+      cleanFileName,
+      cleanNotes,
       now,
       now
     );
@@ -241,7 +256,7 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
     logAudit(req.user.id, req.user.full_name, req.user.role, 'TASK_SUBMITTED', `Submitted task ${task_id} (Version 1)`);
 
     res.status(201).json({
-      message: 'Task submitted successfully! It has been placed in the Pending Review queue.',
+      message: 'Task submitted successfully! It is now pending approval by Farukh Businessman Wala.',
       submissionId: id,
       version: 1,
       status: 'submitted',

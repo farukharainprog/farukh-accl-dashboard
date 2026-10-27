@@ -5,15 +5,10 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
-  Trophy,
-  MessageSquare,
   Users,
   CalendarCheck,
-  Share2,
   ListFilter,
   ShieldCheck,
-  UserPlus,
-  ClipboardList,
 } from 'lucide-react';
 import { api } from '../services/api';
 import type { SubmissionSummary } from '../types';
@@ -156,46 +151,10 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
           )}
         </button>
 
-        {/* Scoreboard */}
-        <button onClick={() => onTabChange('scoreboard')} className={btnClass('scoreboard')}>
-          <Trophy className="w-3.5 h-3.5 text-amber-500" />
-          <span>Scoreboard</span>
-        </button>
-
         {/* Attendance */}
         <button onClick={() => onTabChange('attendance')} className={btnClass('attendance')}>
           <CalendarCheck className="w-3.5 h-3.5 text-blue-600" />
           <span>Attendance</span>
-        </button>
-
-        {/* Submit Feedback */}
-        <button onClick={() => onTabChange('submit_feedback')} className={btnClass('submit_feedback')}>
-          <MessageSquare className="w-3.5 h-3.5 text-purple-600" />
-          <span>Submit Feedback</span>
-        </button>
-
-        {/* Feedback Scoreboard */}
-        <button onClick={() => onTabChange('feedback_scoreboard')} className={btnClass('feedback_scoreboard')}>
-          <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Feedback Scoreboard</span>
-        </button>
-
-        {/* Social Links */}
-        <button onClick={() => onTabChange('social_links')} className={btnClass('social_links')}>
-          <Share2 className="w-3.5 h-3.5 text-sky-600" />
-          <span>Social Links</span>
-        </button>
-
-        {/* Group Learning (Batches) */}
-        <button onClick={() => onTabChange('batches')} className={btnClass('batches')}>
-          <Users className="w-3.5 h-3.5 text-teal-600" />
-          <span>Group Learning (Batches)</span>
-        </button>
-
-        {/* My Batch Enrollments */}
-        <button onClick={() => onTabChange('my_enrollments')} className={btnClass('my_enrollments')}>
-          <ClipboardList className="w-3.5 h-3.5 text-emerald-600" />
-          <span>My Batch Enrollments</span>
         </button>
 
         {/* Student Teacher Info */}
@@ -222,28 +181,7 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
           </button>
         )}
 
-        {/* Admissions Management */}
-        {(isTeacher || isAdmin) && (
-          <button
-            onClick={() => onTabChange('admissions_management')}
-            className={btnClass('admissions_management', 'bg-teal-700 text-white font-bold')}
-          >
-            <UserPlus className="w-3.5 h-3.5 text-teal-200" />
-            <span>Admissions</span>
-          </button>
-        )}
-
         {/* Owner / Admin Management Tabs */}
-        {isAdmin && (
-          <button
-            onClick={() => onTabChange('user_management')}
-            className={btnClass('user_management', 'bg-slate-800 text-white font-bold')}
-          >
-            <Users className="w-3.5 h-3.5 text-blue-300" />
-            <span>Users & Roles</span>
-          </button>
-        )}
-
         {isOwner && (
           <button
             onClick={() => onTabChange('admin_settings')}
