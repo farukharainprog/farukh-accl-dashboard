@@ -1,4 +1,5 @@
 import { storageService, getKarachiTimeString, getKarachiDateKey } from './storage';
+import { firestoreService } from './firestoreService';
 import type {
   UserProfile,
   TaskItem,
@@ -153,11 +154,24 @@ export const api = {
   },
 
   googleLogin: async (data: { email: string; full_name?: string }): Promise<any> => {
+    const cleanEmail = (data.email || '').toLowerCase().trim();
+
+    // Check Cloud Firestore for student registration
+    let fsUser: any = null;
+    try {
+      fsUser = await firestoreService.getUserByEmail(cleanEmail);
+      if (fsUser) {
+        storageService.saveUserLocally(fsUser, 'google-oauth-session');
+      }
+    } catch (e) {
+      console.warn('[Firestore] googleLogin user lookup error:', e);
+    }
+
     return syncRequest(
       async () => {
         const res = await serverRequest<any>('/auth/google-login', {
           method: 'POST',
-          body: JSON.stringify(data),
+          body: JSON.stringify({ ...data, email: cleanEmail }),
         });
         if (res.token) setStoredToken(res.token);
         if (res.user) {
@@ -165,7 +179,15 @@ export const api = {
         }
         return res;
       },
-      () => storageService.googleLogin(data)
+      async () => {
+        if (fsUser) {
+          const token = `fs_token_${fsUser.id || cleanEmail}_${Date.now()}`;
+          setStoredToken(token);
+          storageService.saveUserLocally(fsUser, 'google-oauth-session');
+          return { success: true, token, user: fsUser };
+        }
+        return storageService.googleLogin({ ...data, email: cleanEmail });
+      }
     );
   },
 
@@ -188,6 +210,24 @@ export const api = {
 
   // Tasks
   getTasks: async (params?: { book?: string; day?: number; category?: string; search?: string; status?: string; student_id?: string }): Promise<{ tasks: TaskItem[] }> => {
+    // Current user context for student-specific submission matching
+    const currentUser = storageService.getCurrentUserSync();
+    const targetStudentId = params?.student_id || currentUser?.id;
+    const targetStudentEmail = currentUser?.email?.toLowerCase().trim();
+
+    let fsSubs: any[] = [];
+    try {
+      if (targetStudentId || targetStudentEmail) {
+        const allSubs = await firestoreService.getSubmissions();
+        fsSubs = allSubs.filter((s) =>
+          (targetStudentId && String(s.student_id) === String(targetStudentId)) ||
+          (targetStudentEmail && s.student_email?.toLowerCase().trim() === targetStudentEmail)
+        );
+      }
+    } catch (e) {
+      console.warn('[Firestore] getTasks submissions lookup error:', e);
+    }
+
     const qs = new URLSearchParams();
     if (params?.book && params.book !== 'all') qs.set('book', params.book);
     if (params?.day !== undefined) qs.set('day', String(params.day));
@@ -198,9 +238,32 @@ export const api = {
 
     const queryStr = qs.toString() ? `?${qs.toString()}` : '';
 
+    const mergeWithFsSubs = (tasks: TaskItem[]): TaskItem[] => {
+      if (!fsSubs.length) return tasks;
+      return tasks.map((t) => {
+        const matchingFs = fsSubs.find((s) => String(s.task_id) === String(t.id));
+        if (matchingFs) {
+          return {
+            ...t,
+            submission: {
+              ...(t.submission || {}),
+              ...matchingFs,
+            },
+          };
+        }
+        return t;
+      });
+    };
+
     return syncRequest(
-      () => serverRequest<{ tasks: TaskItem[] }>(`/tasks${queryStr}`),
-      () => storageService.getTasks(params)
+      async () => {
+        const res = await serverRequest<{ tasks: TaskItem[] }>(`/tasks${queryStr}`);
+        return { tasks: mergeWithFsSubs(res.tasks || []) };
+      },
+      async () => {
+        const res = await storageService.getTasks(params);
+        return { tasks: mergeWithFsSubs(res.tasks || []) };
+      }
     );
   },
 
@@ -247,19 +310,103 @@ export const api = {
 
   // Submissions
   getSummaryMe: async (book: string = 'Book 1'): Promise<SubmissionSummary> => {
+    const currentUser = storageService.getCurrentUserSync();
+    let fsApproved = 0;
+    let fsPending = 0;
+    let fsNeedsCorrection = 0;
+    try {
+      if (currentUser) {
+        const email = currentUser.email?.toLowerCase().trim();
+        const allSubs = await firestoreService.getSubmissions();
+        const studentSubs = allSubs.filter((s) =>
+          String(s.student_id) === String(currentUser.id) ||
+          (email && s.student_email?.toLowerCase().trim() === email)
+        );
+        fsApproved = studentSubs.filter((s) => s.status === 'approved').length;
+        fsPending = studentSubs.filter((s) => s.status === 'submitted').length;
+        fsNeedsCorrection = studentSubs.filter((s) => s.status === 'needs_correction' || s.status === 'rejected').length;
+      }
+    } catch (e) {
+      console.warn('[Firestore] getSummaryMe error:', e);
+    }
+
     return syncRequest(
-      () => serverRequest<SubmissionSummary>(`/submissions/summary/me?book=${encodeURIComponent(book)}`),
-      () => storageService.getSummaryMe(book)
+      async () => {
+        const res = await serverRequest<SubmissionSummary>(`/submissions/summary/me?book=${encodeURIComponent(book)}`);
+        return {
+          ...res,
+          approvedCount: Math.max(res.approvedCount || 0, fsApproved),
+          pendingCount: Math.max(res.pendingCount || 0, fsPending),
+          needsCorrectionCount: Math.max(res.needsCorrectionCount || 0, fsNeedsCorrection),
+          progressPercent: Math.min(100, Math.round((Math.max(res.approvedCount || 0, fsApproved) / (res.totalTasks || 180)) * 100)),
+        };
+      },
+      async () => {
+        const local = await storageService.getSummaryMe(book);
+        return {
+          ...local,
+          approvedCount: Math.max(local.approvedCount || 0, fsApproved),
+          pendingCount: Math.max(local.pendingCount || 0, fsPending),
+          needsCorrectionCount: Math.max(local.needsCorrectionCount || 0, fsNeedsCorrection),
+          progressPercent: Math.min(100, Math.round((Math.max(local.approvedCount || 0, fsApproved) / (local.totalTasks || 180)) * 100)),
+        };
+      }
     );
   },
 
   submitTask: async (data: any): Promise<any> => {
+    const currentUser = storageService.getCurrentUserSync();
+    const studentId = currentUser?.id ? String(currentUser.id) : (currentUser?.email || 'student');
+    const studentName = currentUser?.full_name || 'Student';
+    const studentEmail = (currentUser?.email || '').toLowerCase().trim();
+
+    // 1. Immediately write to Cloud Firestore so the Owner Dashboard receives it globally
+    let firestoreSubId = '';
+    try {
+      firestoreSubId = await firestoreService.saveSubmission({
+        student_id: studentId,
+        student_name: studentName,
+        student_email: studentEmail,
+        task_id: data.task_id,
+        task_title: data.task_title || `Day ${data.task_day || 1}`,
+        task_day: data.task_day || 1,
+        task_book: data.task_book || 'Book 1',
+        task_category: data.task_category || 'General',
+        status: 'submitted',
+        fb_link: data.fb_link || null,
+        yt_link: data.yt_link || null,
+        li_link: data.li_link || null,
+        insta_link: data.insta_link || null,
+        other_link: data.other_link || null,
+        file_url: data.file_url || null,
+        file_name: data.file_name || null,
+        student_notes: data.student_notes || null,
+        submitted_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.warn('[Firestore] Error saving submission:', err);
+    }
+
     return syncRequest(
-      () => serverRequest('/submissions', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-      () => storageService.submitTask(data)
+      async () => {
+        const res = await serverRequest<any>('/submissions', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return {
+          ...res,
+          submissionId: res?.submissionId || firestoreSubId,
+          status: 'submitted',
+        };
+      },
+      async () => {
+        const res = await storageService.submitTask(data);
+        return {
+          ...res,
+          submissionId: firestoreSubId || res?.submissionId,
+          status: 'submitted',
+        };
+      }
     );
   },
 
@@ -272,15 +419,66 @@ export const api = {
 
     const queryStr = qs.toString() ? `?${qs.toString()}` : '';
 
+    // Fetch live submissions from Cloud Firestore
+    let fsSubs: any[] = [];
+    try {
+      fsSubs = await firestoreService.getSubmissions(params);
+    } catch (e) {
+      console.warn('[Firestore] review queue fetch error:', e);
+    }
+
+    const mergeSubmissions = (serverSubs: any[] = []): any[] => {
+      const mergedMap = new Map<string, any>();
+      for (const s of serverSubs) {
+        const key = s.id ? String(s.id) : `${s.student_id}_${s.task_id}`;
+        mergedMap.set(key, s);
+      }
+      for (const fs of fsSubs) {
+        const key = fs.id ? String(fs.id) : `${fs.student_id}_${fs.task_id}`;
+        if (mergedMap.has(key)) {
+          mergedMap.set(key, { ...mergedMap.get(key), ...fs });
+        } else {
+          mergedMap.set(key, fs);
+        }
+      }
+      let list = Array.from(mergedMap.values());
+      if (params?.status && params.status !== 'all') {
+        list = list.filter((item) => item.status === params.status);
+      }
+      if (params?.search) {
+        const term = params.search.toLowerCase();
+        list = list.filter((item) =>
+          (item.student_name || '').toLowerCase().includes(term) ||
+          (item.task_title || '').toLowerCase().includes(term) ||
+          (item.student_email || '').toLowerCase().includes(term)
+        );
+      }
+      list.sort((a, b) => new Date(b.updated_at || b.submitted_at || 0).getTime() - new Date(a.updated_at || a.submitted_at || 0).getTime());
+      return list;
+    };
+
     return syncRequest(
-      () => serverRequest(`/submissions/queue${queryStr}`),
-      () => storageService.getReviewQueue(params)
+      async () => {
+        const res = await serverRequest<any>(`/submissions/queue${queryStr}`);
+        return { submissions: mergeSubmissions(res?.submissions || []) };
+      },
+      async () => {
+        const local = await storageService.getReviewQueue(params);
+        return { submissions: mergeSubmissions(local?.submissions || []) };
+      }
     );
   },
 
   reviewSubmission: async (id: string, data: { decision: string; feedback?: string }): Promise<any> => {
-    // Normalize decision string if 'approve' was passed instead of 'approved'
-    const normalizedDecision = data.decision === 'approve' ? 'approved' : data.decision;
+    const normalizedDecision = data.decision === 'approve' || data.decision === 'approved' ? 'approved' : 'needs_correction';
+
+    // 1. Instantly update Cloud Firestore so student device sees approval
+    try {
+      await firestoreService.reviewSubmission(id, normalizedDecision, data.feedback);
+    } catch (e) {
+      console.warn('[Firestore] review submission update failed:', e);
+    }
+
     return syncRequest(
       () => serverRequest(`/submissions/${encodeURIComponent(id)}/review`, {
         method: 'POST',
@@ -289,7 +487,7 @@ export const api = {
           decision: normalizedDecision,
         }),
       }),
-      () => storageService.reviewSubmission(id, data)
+      () => storageService.reviewSubmission(id, { ...data, decision: normalizedDecision })
     );
   },
 
@@ -310,6 +508,21 @@ export const api = {
   },
 
   checkIn: async (): Promise<any> => {
+    const currentUser = storageService.getCurrentUserSync();
+    if (currentUser) {
+      try {
+        await firestoreService.saveAttendanceSession({
+          id: `att_${currentUser.id}_${Date.now()}`,
+          student_id: String(currentUser.id),
+          student_name: currentUser.full_name,
+          student_email: currentUser.email,
+          check_in_time: new Date().toISOString(),
+          status: 'checked_in',
+        });
+      } catch (e) {
+        console.warn('[Firestore] checkIn error:', e);
+      }
+    }
     return syncRequest(
       () => serverRequest('/attendance/check-in', { method: 'POST' }),
       () => storageService.checkIn()
@@ -317,6 +530,21 @@ export const api = {
   },
 
   checkOut: async (): Promise<any> => {
+    const currentUser = storageService.getCurrentUserSync();
+    if (currentUser) {
+      try {
+        await firestoreService.saveAttendanceSession({
+          id: `att_${currentUser.id}_out_${Date.now()}`,
+          student_id: String(currentUser.id),
+          student_name: currentUser.full_name,
+          student_email: currentUser.email,
+          check_out_time: new Date().toISOString(),
+          status: 'completed',
+        });
+      } catch (e) {
+        console.warn('[Firestore] checkOut error:', e);
+      }
+    }
     return syncRequest(
       () => serverRequest('/attendance/check-out', { method: 'POST' }),
       () => storageService.checkOut()
@@ -324,10 +552,37 @@ export const api = {
   },
 
   getAttendanceHistory: async (studentId?: string): Promise<any> => {
+    let fsSessions: any[] = [];
+    try {
+      fsSessions = await firestoreService.getAttendanceSessions(studentId);
+    } catch (e) {
+      console.warn('[Firestore] attendance sessions error:', e);
+    }
+
+    const mergeSessions = (sessions: any[] = []): any[] => {
+      const map = new Map<string, any>();
+      for (const s of sessions) map.set(s.id || `${s.student_id}_${s.check_in_time}`, s);
+      for (const fs of fsSessions) {
+        const key = fs.id || `${fs.student_id}_${fs.check_in_time}`;
+        if (!map.has(key)) map.set(key, fs);
+      }
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(b.check_in_time).getTime() - new Date(a.check_in_time).getTime()
+      );
+    };
+
     const qs = studentId ? `?student_id=${encodeURIComponent(studentId)}` : '';
     return syncRequest(
-      () => serverRequest(`/attendance/history${qs}`),
-      () => storageService.getAttendanceHistory(studentId)
+      async () => {
+        const res = await serverRequest<any>(`/attendance/history${qs}`);
+        const serverItems = (res as any)?.sessions || (res as any)?.history || [];
+        return { sessions: mergeSessions(serverItems) };
+      },
+      async () => {
+        const local = await storageService.getAttendanceHistory(studentId);
+        const localItems = (local as any)?.sessions || (local as any)?.history || [];
+        return { sessions: mergeSessions(localItems) };
+      }
     );
   },
 
@@ -472,18 +727,42 @@ export const api = {
   },
 
   registerStudentByOwner: async (data: { full_name: string; whatsapp: string; email: string; learning_level?: string }): Promise<any> => {
+    const cleanEmail = (data.email || '').toLowerCase().trim();
+    const studentUser: UserProfile = {
+      id: `std_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      email: cleanEmail,
+      full_name: data.full_name,
+      whatsapp: data.whatsapp || '',
+      learning_level: data.learning_level || 'Book 1',
+      role: 'student',
+      status: 'active',
+      can_approve: false,
+      can_admit: false,
+      created_at: new Date().toISOString(),
+    };
+
+    // 1. Immediately persist to Cloud Firestore
+    try {
+      await firestoreService.saveUser(studentUser);
+    } catch (e) {
+      console.warn('[Firestore] Error saving student:', e);
+    }
+
     return syncRequest(
       async () => {
         const res = await serverRequest<any>('/users/register-student', {
           method: 'POST',
-          body: JSON.stringify(data),
+          body: JSON.stringify({ ...data, email: cleanEmail }),
         });
         if (res.student) {
           storageService.saveUserLocally(res.student, 'google-oauth-session');
         }
         return res;
       },
-      () => storageService.registerStudentByOwner(data)
+      () => {
+        storageService.saveUserLocally(studentUser, 'google-oauth-session');
+        return Promise.resolve({ success: true, student: studentUser });
+      }
     );
   },
 
@@ -511,6 +790,13 @@ export const api = {
   },
 
   clearAllStudents: async (): Promise<any> => {
+    // 1. Wipe from Cloud Firestore
+    try {
+      await firestoreService.clearAllStudents();
+    } catch (e) {
+      console.warn('[Firestore] clearAllStudents error:', e);
+    }
+
     return syncRequest(
       async () => {
         const res = await serverRequest<any>('/users/clear-all-students', { method: 'POST' });
@@ -520,14 +806,94 @@ export const api = {
         } catch {}
         return res;
       },
-      () => storageService.clearDummyStudents()
+      () => {
+        storageService.cleanAllAdmissionsLocally?.();
+        storageService.clearDummyStudents?.();
+        return Promise.resolve({ success: true, message: 'All students cleared' });
+      }
     );
   },
 
   getStudentsOverview: async (): Promise<{ students: any[]; totalCurriculumTasks: number }> => {
+    // Fetch students and submissions from Cloud Firestore
+    let fsStudents: any[] = [];
+    let fsSubmissions: any[] = [];
+    try {
+      fsStudents = await firestoreService.getAllUsers('student');
+      fsSubmissions = await firestoreService.getSubmissions();
+    } catch (e) {
+      console.warn('[Firestore] Failed to get students overview data:', e);
+    }
+
+    const mergeStudents = (serverStudents: any[] = []): any[] => {
+      const studentMap = new Map<string, any>();
+
+      for (const s of serverStudents) {
+        const key = (s.email || s.id || '').toLowerCase().trim();
+        if (key) studentMap.set(key, s);
+      }
+
+      for (const fs of fsStudents) {
+        const key = (fs.email || fs.id || '').toLowerCase().trim();
+        if (!key) continue;
+
+        const studentSubs = fsSubmissions.filter((sub) =>
+          (sub.student_email && sub.student_email.toLowerCase().trim() === key) ||
+          String(sub.student_id) === String(fs.id)
+        );
+        const approvedCount = studentSubs.filter((s) => s.status === 'approved').length;
+        const pendingCount = studentSubs.filter((s) => s.status === 'submitted').length;
+        const needsCorrectionCount = studentSubs.filter((s) => s.status === 'needs_correction' || s.status === 'rejected').length;
+        const lastActive = studentSubs[0]?.updated_at || studentSubs[0]?.submitted_at || fs.created_at;
+
+        if (studentMap.has(key)) {
+          const existing = studentMap.get(key);
+          studentMap.set(key, {
+            ...existing,
+            full_name: fs.full_name || existing.full_name,
+            whatsapp: fs.whatsapp || existing.whatsapp,
+            approvedCount: Math.max(existing.approvedCount || 0, approvedCount),
+            pendingCount: Math.max(existing.pendingCount || 0, pendingCount),
+            totalSubmissions: Math.max(existing.totalSubmissions || 0, studentSubs.length),
+            lastActive: lastActive || existing.lastActive,
+          });
+        } else {
+          studentMap.set(key, {
+            id: fs.id,
+            full_name: fs.full_name || 'Student',
+            email: fs.email,
+            whatsapp: fs.whatsapp || '',
+            role: 'student',
+            status: 'active',
+            learning_level: fs.learning_level || 'Book 1',
+            approvedCount,
+            pendingCount,
+            needsCorrectionCount,
+            totalSubmissions: studentSubs.length,
+            progressPercent: Math.min(100, Math.round((approvedCount / 180) * 100)),
+            lastActive,
+          });
+        }
+      }
+
+      return Array.from(studentMap.values());
+    };
+
     return syncRequest(
-      () => serverRequest<{ students: any[]; totalCurriculumTasks: number }>('/users/students-overview'),
-      () => storageService.getStudentsOverview()
+      async () => {
+        const res = await serverRequest<{ students: any[]; totalCurriculumTasks: number }>('/users/students-overview');
+        return {
+          students: mergeStudents(res?.students || []),
+          totalCurriculumTasks: res?.totalCurriculumTasks || 180,
+        };
+      },
+      async () => {
+        const local = await storageService.getStudentsOverview();
+        return {
+          students: mergeStudents(local?.students || []),
+          totalCurriculumTasks: 180,
+        };
+      }
     );
   },
 

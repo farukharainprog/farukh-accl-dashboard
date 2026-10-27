@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account for student, teacher, or owner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "full_name": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "teacher", "owner", "admin"] },
+        "status": { "type": "string", "enum": ["active", "pending", "suspended", "rejected"] },
+        "learning_level": { "type": "string" },
+        "assigned_teacher_id": { "type": "string" },
+        "can_approve": { "type": "boolean" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "email", "full_name", "role", "status"]
+    },
+    "TaskSubmission": {
+      "title": "TaskSubmission",
+      "description": "Submission of a curriculum task by a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "student_id": { "type": "string" },
+        "student_name": { "type": "string" },
+        "student_email": { "type": "string" },
+        "task_id": { "type": "string" },
+        "task_title": { "type": "string" },
+        "task_day": { "type": "number" },
+        "task_book": { "type": "string" },
+        "status": { "type": "string", "enum": ["submitted", "approved", "needs_correction", "rejected"] },
+        "fb_link": { "type": "string" },
+        "yt_link": { "type": "string" },
+        "li_link": { "type": "string" },
+        "insta_link": { "type": "string" },
+        "other_link": { "type": "string" },
+        "student_notes": { "type": "string" },
+        "version": { "type": "number" },
+        "reviewer_id": { "type": "string" },
+        "reviewer_name": { "type": "string" },
+        "reviewer_feedback": { "type": "string" },
+        "submitted_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "student_id", "task_id", "status", "submitted_at"]
+    },
+    "AttendanceSession": {
+      "title": "AttendanceSession",
+      "description": "Student attendance session recording check-in and check-out",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "student_id": { "type": "string" },
+        "student_name": { "type": "string" },
+        "check_in_time": { "type": "string" },
+        "check_in_local": { "type": "string" },
+        "check_out_time": { "type": "string" },
+        "check_out_local": { "type": "string" },
+        "duration_minutes": { "type": "number" },
+        "date_key": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "completed"] }
+      },
+      "required": ["id", "student_id", "check_in_time", "status", "date_key"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Academy users including students, teachers, and owner"
+    },
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/TaskSubmission" },
+      "description": "Student task submissions reviewed by owner and teachers"
+    },
+    "/attendance_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/AttendanceSession" },
+      "description": "Student attendance check-in and check-out logs"
+    }
+  }
+}

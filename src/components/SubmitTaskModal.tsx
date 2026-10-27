@@ -74,6 +74,10 @@ export const SubmitTaskModal: React.FC<SubmitTaskModalProps> = ({
     try {
       const payload = {
         task_id: task.id,
+        task_title: task.title,
+        task_day: task.day_number,
+        task_book: task.book,
+        task_category: task.category,
         fb_link: fbLink.trim() || undefined,
         yt_link: ytLink.trim() || undefined,
         li_link: liLink.trim() || undefined,

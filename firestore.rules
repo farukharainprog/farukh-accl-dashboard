@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Academy users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Task submissions collection
+    match /submissions/{submissionId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Attendance sessions collection
+    match /attendance_sessions/{sessionId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Test connection document
+    match /test/{document} {
+      allow read, write: if true;
+    }
+  }
+}

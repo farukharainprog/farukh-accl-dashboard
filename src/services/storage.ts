@@ -196,6 +196,29 @@ export const storageService = {
   getStoredToken(): string | null {
     return localStorage.getItem(KEYS.TOKEN);
   },
+  getCurrentUserSync(): UserProfile | null {
+    const token = localStorage.getItem(KEYS.TOKEN);
+    if (!token) return null;
+    const match = token.match(/^token-(.+?)-\d+$/) || token.match(/^fs_token_(.+?)_\d+$/);
+    const userId = match ? match[1] : null;
+    const users = getStore<any[]>(KEYS.USERS, []);
+    const user = users.find((u) => u.id === userId || u.email === userId);
+    if (!user) return null;
+    return {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      father_name: user.father_name,
+      whatsapp: user.whatsapp,
+      role: user.role,
+      status: user.status,
+      learning_level: user.learning_level || 'Book 1',
+      assigned_teacher_id: user.assigned_teacher_id,
+      can_approve: Boolean(user.can_approve),
+      can_admit: Boolean(user.can_admit),
+      created_at: user.created_at,
+    };
+  },
   setStoredToken(token: string): void {
     localStorage.setItem(KEYS.TOKEN, token);
   },
