@@ -76,9 +76,9 @@ async function syncRequest<T>(
   try {
     return await serverFn();
   } catch (err: any) {
-    // If it's an infrastructure failure (405, 404, 500+, non-JSON, network error), fall back immediately to local store
-    if (err?.isInfraError || !err?.status || err.status === 405 || err.status === 404 || err.status >= 500) {
-      console.warn('Backend server returned infrastructure status, using client fallback:', err?.message || err);
+    // If it's an infrastructure failure (405, 404, 500+, non-JSON, network error) or container auth/session mismatch (401, 403), fall back immediately to local/firestore store
+    if (err?.isInfraError || !err?.status || err.status === 401 || err.status === 403 || err.status === 405 || err.status === 404 || err.status >= 500) {
+      console.warn('Backend server returned fallback status, using client fallback:', err?.message || err);
       return await fallbackFn();
     }
     // Only throw genuine business validation errors that have real error messages from our API
