@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { firestoreDb } from '../firebase';
 import type { UserProfile, TaskItem, AttendanceStatus } from '../types';
+import { isSubmissionForStudent } from '../utils/studentMatcher';
 
 export const firestoreService = {
   // ==========================================
@@ -143,15 +144,18 @@ export const firestoreService = {
     try {
       const col = collection(firestoreDb, 'submissions');
       let q = query(col);
-      if (params?.student_id) {
-        q = query(col, where('student_id', '==', params.student_id));
-      } else if (params?.status) {
+      if (params?.status && params.status !== 'all') {
         q = query(col, where('status', '==', params.status));
       }
       const snap = await getDocs(q);
-      const items = snap.docs.map((d) => d.data());
+      let items = snap.docs.map((d) => d.data());
+
+      if (params?.student_id) {
+        items = items.filter((s) => isSubmissionForStudent(s, params.student_id));
+      }
+
       // Sort by updated_at descending
-      items.sort((a, b) => new Date(b.updated_at || b.submitted_at).getTime() - new Date(a.updated_at || a.submitted_at).getTime());
+      items.sort((a, b) => new Date(b.updated_at || b.submitted_at || 0).getTime() - new Date(a.updated_at || a.submitted_at || 0).getTime());
       return items;
     } catch (err) {
       console.warn('[Firestore] Failed to fetch submissions:', err);
@@ -196,11 +200,27 @@ export const firestoreService = {
   async getAttendanceSessions(studentId?: string): Promise<any[]> {
     try {
       const col = collection(firestoreDb, 'attendance_sessions');
-      let q = studentId
-        ? query(col, where('student_id', '==', studentId))
-        : query(col);
-      const snap = await getDocs(q);
-      const items = snap.docs.map((d) => d.data());
+      const snap = await getDocs(col);
+      let items = snap.docs.map((d) => d.data());
+      if (studentId) {
+        const sId = String(studentId).trim();
+        const isMateen =
+          sId === '0e5e0061-f2ac-4ff6-8085-4d6d575938b9' ||
+          sId === 'std_1793115797698_qvwb' ||
+          sId.toLowerCase().includes('mateen');
+
+        items = items.filter((a) => {
+          if (String(a.student_id) === sId) return true;
+          if (isMateen && (
+            a.student_id === '0e5e0061-f2ac-4ff6-8085-4d6d575938b9' ||
+            a.student_id === 'std_1793115797698_qvwb' ||
+            (a.student_name && a.student_name.toLowerCase().includes('mateen'))
+          )) {
+            return true;
+          }
+          return false;
+        });
+      }
       items.sort((a, b) => new Date(b.check_in_time).getTime() - new Date(a.check_in_time).getTime());
       return items;
     } catch (err) {

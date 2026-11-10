@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
-import { queryAll, queryOne, execute, logAudit } from '../db.js';
+import { queryAll, queryOne, execute, logAudit, getStudentIdAliases } from '../db.js';
 import { authMiddleware, requireActive, type AuthRequest } from '../auth.js';
 import type { Submission } from '../types.js';
 
@@ -13,6 +13,8 @@ submissionsRouter.get('/summary/me', authMiddleware, requireActive, (req: AuthRe
     return;
   }
   const studentId = req.user.id;
+  const targetIds = getStudentIdAliases(studentId);
+  const inClause = `s.student_id IN (${targetIds.map(() => '?').join(',')})`;
   const book = (req.query.book as string) || req.user.learning_level || 'Book 1';
 
   const isAll = !book || book === 'all';
@@ -28,42 +30,42 @@ submissionsRouter.get('/summary/me', authMiddleware, requireActive, (req: AuthRe
         SELECT COUNT(DISTINCT s.task_id) as count
         FROM submissions s
         JOIN tasks t ON s.task_id = t.id
-        WHERE s.student_id = ? AND s.status = 'approved' AND t.status = 'active'
-      `, studentId)?.count || 0
+        WHERE ${inClause} AND s.status = 'approved' AND t.status = 'active'
+      `, ...targetIds)?.count || 0
     : queryOne<{ count: number }>(`
         SELECT COUNT(DISTINCT s.task_id) as count
         FROM submissions s
         JOIN tasks t ON s.task_id = t.id
-        WHERE s.student_id = ? AND s.status = 'approved' AND t.book = ? AND t.status = 'active'
-      `, studentId, book)?.count || 0;
+        WHERE ${inClause} AND s.status = 'approved' AND t.book = ? AND t.status = 'active'
+      `, ...targetIds, book)?.count || 0;
 
   const pendingCount = isAll
     ? queryOne<{ count: number }>(`
         SELECT COUNT(DISTINCT s.task_id) as count
         FROM submissions s
         JOIN tasks t ON s.task_id = t.id
-        WHERE s.student_id = ? AND s.status = 'submitted' AND t.status = 'active'
-      `, studentId)?.count || 0
+        WHERE ${inClause} AND s.status = 'submitted' AND t.status = 'active'
+      `, ...targetIds)?.count || 0
     : queryOne<{ count: number }>(`
         SELECT COUNT(DISTINCT s.task_id) as count
         FROM submissions s
         JOIN tasks t ON s.task_id = t.id
-        WHERE s.student_id = ? AND s.status = 'submitted' AND t.book = ? AND t.status = 'active'
-      `, studentId, book)?.count || 0;
+        WHERE ${inClause} AND s.status = 'submitted' AND t.book = ? AND t.status = 'active'
+      `, ...targetIds, book)?.count || 0;
 
   const needsCorrectionCount = isAll
     ? queryOne<{ count: number }>(`
         SELECT COUNT(DISTINCT s.task_id) as count
         FROM submissions s
         JOIN tasks t ON s.task_id = t.id
-        WHERE s.student_id = ? AND s.status IN ('needs_correction', 'rejected') AND t.status = 'active'
-      `, studentId)?.count || 0
+        WHERE ${inClause} AND s.status IN ('needs_correction', 'rejected') AND t.status = 'active'
+      `, ...targetIds)?.count || 0
     : queryOne<{ count: number }>(`
         SELECT COUNT(DISTINCT s.task_id) as count
         FROM submissions s
         JOIN tasks t ON s.task_id = t.id
-        WHERE s.student_id = ? AND s.status IN ('needs_correction', 'rejected') AND t.book = ? AND t.status = 'active'
-      `, studentId, book)?.count || 0;
+        WHERE ${inClause} AND s.status IN ('needs_correction', 'rejected') AND t.book = ? AND t.status = 'active'
+      `, ...targetIds, book)?.count || 0;
 
   const remainingTasks = Math.max(0, totalTasks - approvedCount);
   const progressPercent = totalTasks > 0 ? Math.min(100, Math.round((approvedCount / totalTasks) * 100)) : 0;
@@ -297,8 +299,9 @@ submissionsRouter.get('/queue', authMiddleware, (req: AuthRequest, res: Response
   }
 
   if (student_id) {
-    query += ' AND s.student_id = ?';
-    params.push(student_id);
+    const sIds = getStudentIdAliases(String(student_id));
+    query += ` AND s.student_id IN (${sIds.map(() => '?').join(',')})`;
+    params.push(...sIds);
   }
 
   if (status) {

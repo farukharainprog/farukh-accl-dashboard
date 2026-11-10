@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
-import { queryAll, queryOne, execute, logAudit } from '../db.js';
+import { queryAll, queryOne, execute, logAudit, getStudentIdAliases } from '../db.js';
 import { authMiddleware, requireRole, type AuthRequest } from '../auth.js';
 import type { TaskItem } from '../types.js';
 
@@ -26,6 +26,8 @@ function getOptionalUserId(req: AuthRequest): string | null {
 tasksRouter.get('/', (req: AuthRequest, res: Response) => {
   const { book, day, category, search, status, student_id } = req.query;
   const currentUserId = (student_id as string) || getOptionalUserId(req);
+  const targetIds = currentUserId ? getStudentIdAliases(currentUserId) : [];
+  const inClause = targetIds.length ? `AND s.student_id IN (${targetIds.map(() => '?').join(',')})` : 'AND 1=0';
 
   let query = `
     SELECT t.*,
@@ -44,13 +46,10 @@ tasksRouter.get('/', (req: AuthRequest, res: Response) => {
            s.reviewed_at,
            s.submitted_at
     FROM tasks t
-    LEFT JOIN submissions s ON t.id = s.task_id ${currentUserId ? 'AND s.student_id = ?' : 'AND 1=0'}
+    LEFT JOIN submissions s ON t.id = s.task_id ${inClause}
     WHERE 1=1
   `;
-  const params: any[] = [];
-  if (currentUserId) {
-    params.push(currentUserId);
-  }
+  const params: any[] = [...targetIds];
 
   if (book && book !== 'all') {
     query += ' AND t.book = ?';

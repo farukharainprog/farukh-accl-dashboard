@@ -1,5 +1,6 @@
 import { storageService, getKarachiTimeString, getKarachiDateKey } from './storage';
 import { firestoreService } from './firestoreService';
+import { isSubmissionForStudent } from '../utils/studentMatcher';
 import type {
   UserProfile,
   TaskItem,
@@ -219,10 +220,7 @@ export const api = {
     try {
       if (targetStudentId || targetStudentEmail) {
         const allSubs = await firestoreService.getSubmissions();
-        fsSubs = allSubs.filter((s) =>
-          (targetStudentId && String(s.student_id) === String(targetStudentId)) ||
-          (targetStudentEmail && s.student_email?.toLowerCase().trim() === targetStudentEmail)
-        );
+        fsSubs = allSubs.filter((s) => isSubmissionForStudent(s, targetStudentId, targetStudentEmail));
       }
     } catch (e) {
       console.warn('[Firestore] getTasks submissions lookup error:', e);
@@ -319,8 +317,7 @@ export const api = {
         const email = currentUser.email?.toLowerCase().trim();
         const allSubs = await firestoreService.getSubmissions();
         const studentSubs = allSubs.filter((s) =>
-          String(s.student_id) === String(currentUser.id) ||
-          (email && s.student_email?.toLowerCase().trim() === email)
+          isSubmissionForStudent(s, currentUser.id, email)
         );
         fsApproved = studentSubs.filter((s) => s.status === 'approved').length;
         fsPending = studentSubs.filter((s) => s.status === 'submitted').length;
@@ -883,8 +880,7 @@ export const api = {
         if (!key) continue;
 
         const studentSubs = fsSubmissions.filter((sub) =>
-          (sub.student_email && sub.student_email.toLowerCase().trim() === key) ||
-          String(sub.student_id) === String(fs.id)
+          isSubmissionForStudent(sub, fs.id, fs.email || key)
         );
         const approvedCount = studentSubs.filter((s) => s.status === 'approved').length;
         const pendingCount = studentSubs.filter((s) => s.status === 'submitted').length;

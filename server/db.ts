@@ -392,4 +392,102 @@ export function initDatabase(): void {
       new Date().toISOString()
     );
   }
+
+  // 1. Ensure authentic users exist for legacy IDs
+  execute(`
+    INSERT OR IGNORE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
+    VALUES ('0e5e0061-f2ac-4ff6-8085-4d6d575938b9', 'mateenbusinesswala@gmail.com', 'google_verified', 'google_salt', 'Mateen Busness man wala', 'N/A', '03463311380', 'student', 'active', 'Book 1', 0, 0, '2026-10-27T15:43:17.698Z', '2026-10-27T15:43:17.698Z')
+  `);
+  execute(`
+    INSERT OR IGNORE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
+    VALUES ('student', 'student@rehanschool.edu.pk', 'google_verified', 'google_salt', 'Student', 'N/A', '03453967083', 'student', 'active', 'Book 1', 0, 0, '2026-10-27T15:41:19.818Z', '2026-10-27T15:41:19.821Z')
+  `);
+
+  // 2. Ensure submissions seeded from verified backup if empty
+  const subCount = queryOne<{ count: number }>('SELECT COUNT(*) as count FROM submissions');
+  if (!subCount || subCount.count === 0) {
+    try {
+      const backupPath = path.resolve(process.cwd(), 'backup_firestore_verified.json');
+      if (fs.existsSync(backupPath)) {
+        const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+        if (Array.isArray(backup.submissions)) {
+          for (const s of backup.submissions) {
+            execute(`
+              INSERT OR REPLACE INTO submissions (
+                id, student_id, task_id, version, status,
+                fb_link, yt_link, li_link, insta_link, other_link,
+                file_url, file_name, student_notes, reviewer_id, reviewer_name, reviewer_feedback,
+                reviewed_at, submitted_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+              s.id,
+              s.student_id,
+              s.task_id,
+              s.version || 1,
+              s.status || 'submitted',
+              s.fb_link || null,
+              s.yt_link || null,
+              s.li_link || null,
+              s.insta_link || null,
+              s.other_link || null,
+              s.file_url || null,
+              s.file_name || null,
+              s.student_notes || null,
+              s.reviewer_id || null,
+              s.reviewer_name || null,
+              s.reviewer_feedback || null,
+              s.reviewed_at || null,
+              s.submitted_at || new Date().toISOString(),
+              s.updated_at || new Date().toISOString()
+            );
+          }
+          console.log(`[Database] Restored ${backup.submissions.length} verified submissions from backup.`);
+        }
+
+        if (Array.isArray(backup.attendance)) {
+          for (const a of backup.attendance) {
+            execute(`
+              INSERT OR REPLACE INTO attendance_sessions (
+                id, student_id, check_in_time, check_in_local, check_out_time, check_out_local, duration_minutes, status, date_key
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+              a.id,
+              a.student_id,
+              a.check_in_time,
+              a.check_in_time,
+              a.check_out_time || null,
+              a.check_out_time || null,
+              a.duration_minutes || a.minutes_attended || 0,
+              a.status || 'completed',
+              a.date_key || a.check_in_time.substring(0, 10)
+            );
+          }
+          console.log(`[Database] Restored ${backup.attendance.length} verified attendance sessions from backup.`);
+        }
+      }
+    } catch (bErr) {
+      console.warn('[Database] Failed to restore from backup:', bErr);
+    }
+  }
+}
+
+export function getStudentIdAliases(studentId: string): string[] {
+  if (!studentId) return [];
+  const cleanId = String(studentId).trim();
+  const list = [cleanId];
+  if (
+    cleanId === '0e5e0061-f2ac-4ff6-8085-4d6d575938b9' ||
+    cleanId === 'std_1793115797698_qvwb' ||
+    cleanId.toLowerCase().includes('mateen')
+  ) {
+    list.push('0e5e0061-f2ac-4ff6-8085-4d6d575938b9', 'std_1793115797698_qvwb');
+  }
+  if (
+    cleanId === 'std_1793115679818_1ndy' ||
+    cleanId === 'student' ||
+    cleanId.toLowerCase().includes('farukharain52')
+  ) {
+    list.push('std_1793115679818_1ndy', 'student');
+  }
+  return Array.from(new Set(list));
 }

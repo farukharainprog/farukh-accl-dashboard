@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
-import { queryAll, queryOne, execute, logAudit, getKarachiTimeString, getKarachiDateKey } from '../db.js';
+import { queryAll, queryOne, execute, logAudit, getKarachiTimeString, getKarachiDateKey, getStudentIdAliases } from '../db.js';
 import { authMiddleware, requireActive, type AuthRequest } from '../auth.js';
 import type { AttendanceSession } from '../types.js';
 
@@ -14,21 +14,23 @@ attendanceRouter.get('/status', authMiddleware, requireActive, (req: AuthRequest
   }
 
   const studentId = req.user.id;
+  const studentIds = getStudentIdAliases(studentId);
+  const inClause = `student_id IN (${studentIds.map(() => '?').join(',')})`;
   const todayKey = getKarachiDateKey();
 
   // Find currently open active session
   const activeSession = queryOne<AttendanceSession>(`
     SELECT * FROM attendance_sessions
-    WHERE student_id = ? AND status = 'active'
+    WHERE ${inClause} AND status = 'active'
     ORDER BY check_in_time DESC LIMIT 1
-  `, studentId);
+  `, ...studentIds);
 
   // Find today's sessions
   const todaySessions = queryAll<AttendanceSession>(`
     SELECT * FROM attendance_sessions
-    WHERE student_id = ? AND date_key = ?
+    WHERE ${inClause} AND date_key = ?
     ORDER BY check_in_time ASC
-  `, studentId, todayKey);
+  `, ...studentIds, todayKey);
 
   // Monthly stats (current month in Asia/Karachi)
   const currentMonthPrefix = todayKey.substring(0, 7); // 'YYYY-MM'
@@ -36,20 +38,20 @@ attendanceRouter.get('/status', authMiddleware, requireActive, (req: AuthRequest
   const distinctDaysPresent = queryOne<{ count: number }>(`
     SELECT COUNT(DISTINCT date_key) as count
     FROM attendance_sessions
-    WHERE student_id = ? AND date_key LIKE ?
-  `, studentId, `${currentMonthPrefix}%`)?.count || 0;
+    WHERE ${inClause} AND date_key LIKE ?
+  `, ...studentIds, `${currentMonthPrefix}%`)?.count || 0;
 
   const completedSessionsThisMonth = queryOne<{ count: number }>(`
     SELECT COUNT(*) as count
     FROM attendance_sessions
-    WHERE student_id = ? AND status = 'completed' AND date_key LIKE ?
-  `, studentId, `${currentMonthPrefix}%`)?.count || 0;
+    WHERE ${inClause} AND status = 'completed' AND date_key LIKE ?
+  `, ...studentIds, `${currentMonthPrefix}%`)?.count || 0;
 
   const totalMinutesThisMonth = queryOne<{ total: number }>(`
     SELECT COALESCE(SUM(duration_minutes), 0) as total
     FROM attendance_sessions
-    WHERE student_id = ? AND status = 'completed' AND date_key LIKE ?
-  `, studentId, `${currentMonthPrefix}%`)?.total || 0;
+    WHERE ${inClause} AND status = 'completed' AND date_key LIKE ?
+  `, ...studentIds, `${currentMonthPrefix}%`)?.total || 0;
 
   res.json({
     isCheckedIn: Boolean(activeSession),
@@ -178,14 +180,16 @@ attendanceRouter.get('/history', authMiddleware, (req: AuthRequest, res: Respons
 
   // If role is student, they can only view their own history
   if (req.user.role === 'student') {
+    const studentIds = getStudentIdAliases(req.user.id);
+    const inClause = `a.student_id IN (${studentIds.map(() => '?').join(',')})`;
     const history = queryAll<AttendanceSession>(`
-      SELECT a.*, u.full_name as student_name, u.email as student_email
+      SELECT a.*, COALESCE(u.full_name, 'Student') as student_name, COALESCE(u.email, '') as student_email
       FROM attendance_sessions a
-      JOIN users u ON a.student_id = u.id
-      WHERE a.student_id = ?
+      LEFT JOIN users u ON a.student_id = u.id
+      WHERE ${inClause}
       ORDER BY a.check_in_time DESC
       LIMIT 100
-    `, req.user.id);
+    `, ...studentIds);
     res.json({ history });
     return;
   }
@@ -193,21 +197,22 @@ attendanceRouter.get('/history', authMiddleware, (req: AuthRequest, res: Respons
   // If owner/admin/teacher:
   let history: any[];
   if (requestedStudentId) {
+    const studentIds = getStudentIdAliases(requestedStudentId);
+    const inClause = `a.student_id IN (${studentIds.map(() => '?').join(',')})`;
     history = queryAll<AttendanceSession>(`
-      SELECT a.*, u.full_name as student_name, u.email as student_email
+      SELECT a.*, COALESCE(u.full_name, 'Student') as student_name, COALESCE(u.email, '') as student_email
       FROM attendance_sessions a
-      JOIN users u ON a.student_id = u.id
-      WHERE a.student_id = ?
+      LEFT JOIN users u ON a.student_id = u.id
+      WHERE ${inClause}
       ORDER BY a.check_in_time DESC
       LIMIT 100
-    `, requestedStudentId);
+    `, ...studentIds);
   } else {
     // All recent student attendance
     history = queryAll<AttendanceSession>(`
-      SELECT a.*, u.full_name as student_name, u.email as student_email
+      SELECT a.*, COALESCE(u.full_name, 'Student') as student_name, COALESCE(u.email, '') as student_email
       FROM attendance_sessions a
-      JOIN users u ON a.student_id = u.id
-      WHERE u.role = 'student'
+      LEFT JOIN users u ON a.student_id = u.id
       ORDER BY a.check_in_time DESC
       LIMIT 100
     `);
