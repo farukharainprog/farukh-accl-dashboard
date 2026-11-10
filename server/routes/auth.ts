@@ -211,6 +211,18 @@ authRouter.post('/login', (req, res: Response) => {
       WHERE LOWER(TRIM(u.email)) = LOWER(TRIM(?))
     `, cleanEmail);
 
+    // If owner user does not exist in SQLite table yet, provision automatically
+    if (!user && cleanEmail === 'farukharain962@gmail.com') {
+      const { salt, hash } = hashPassword(cleanPassword || '@farukh2199@');
+      const ownerId = 'user-owner-001';
+      const now = new Date().toISOString();
+      execute(`
+        INSERT OR REPLACE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'FARUKH BUSINESSMAN WALA', 'Haji Ghulam', '0345 3967083', 'owner', 'active', 'Book 1', 1, 1, ?, ?)
+      `, ownerId, cleanEmail, hash, salt, now, now);
+      user = queryOne<User>('SELECT * FROM users WHERE email = ?', cleanEmail);
+    }
+
     // If user not in users table yet, check student_admissions
     const admission = queryOne<StudentAdmission>('SELECT * FROM student_admissions WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))', cleanEmail);
 
@@ -291,11 +303,24 @@ authRouter.post('/login', (req, res: Response) => {
 
     // Password verification logic
     if (user.role === 'owner') {
-      // Owner login check
-      const isOwnerValid = cleanPassword === '@Farukh2199' || verifyPassword(cleanPassword, user.salt, user.password_hash);
+      // Owner login check - accepts @farukh2199@, @Farukh2199@, @farukh2199, @Farukh2199, acclOwner@2026 or verified hash
+      const isOwnerValid =
+        cleanPassword === '@farukh2199@' ||
+        cleanPassword === '@Farukh2199@' ||
+        cleanPassword === '@farukh2199' ||
+        cleanPassword === '@Farukh2199' ||
+        cleanPassword === 'acclOwner@2026' ||
+        verifyPassword(cleanPassword, user.salt, user.password_hash);
+
       if (!isOwnerValid) {
         res.status(401).json({ error: 'Invalid password for Owner account.' });
         return;
+      }
+
+      // Update password hash if owner logged in with new password
+      if (cleanPassword === '@farukh2199@' || cleanPassword === '@Farukh2199@') {
+        const { salt, hash } = hashPassword(cleanPassword);
+        execute('UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?', hash, salt, new Date().toISOString(), user.id);
       }
     } else {
       // Student / Teacher login check
@@ -413,6 +438,27 @@ const googleLoginHandler = (req: any, res: Response) => {
         });
         return;
       }
+    }
+
+    // Check alias for Mateen if needed
+    if (!user) {
+      if (cleanEmail === 'mateenbusinesswala@gmail.com') {
+        user = queryOne<User>('SELECT * FROM users WHERE LOWER(TRIM(email)) = ?', 'mateenbusnesswala@gmail.com');
+      } else if (cleanEmail === 'mateenbusnesswala@gmail.com') {
+        user = queryOne<User>('SELECT * FROM users WHERE LOWER(TRIM(email)) = ?', 'mateenbusinesswala@gmail.com');
+      }
+    }
+
+    // If owner signs in via Google/Gmail
+    if (!user && cleanEmail === 'farukharain962@gmail.com') {
+      const { salt, hash } = hashPassword('@farukh2199@');
+      const ownerId = 'user-owner-001';
+      const now = new Date().toISOString();
+      execute(`
+        INSERT OR REPLACE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'FARUKH BUSINESSMAN WALA', 'Haji Ghulam', '0345 3967083', 'owner', 'active', 'Book 1', 1, 1, ?, ?)
+      `, ownerId, cleanEmail, hash, salt, now, now);
+      user = queryOne<User>('SELECT * FROM users WHERE email = ?', cleanEmail);
     }
 
     if (!user) {

@@ -58,9 +58,8 @@ apiRouter.get('/health', (_req, res) => {
   });
 });
 
-// Mount at both '/api' and '/' so that it works seamlessly whether Vercel preserves or strips '/api'
+// Mount API router strictly under '/api' to ensure client-side SPA routes (e.g. /tasks, /attendance) are never intercepted
 app.use('/api', apiRouter);
-app.use('/', apiRouter);
 
 // Global JSON error handling middleware
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

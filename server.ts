@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import app from './server/app.js';
@@ -33,6 +34,22 @@ async function startServer() {
     });
     app.use(vite.middlewares);
     console.log('[Dev] Vite middleware attached for SPA dev server.');
+
+    // Fallback handler for client SPA navigation in dev mode
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      if (url.startsWith('/api')) {
+        return next();
+      }
+      try {
+        const indexPath = path.resolve(__dirname, 'index.html');
+        let template = fs.readFileSync(indexPath, 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        next(e);
+      }
+    });
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));

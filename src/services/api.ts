@@ -717,14 +717,57 @@ export const api = {
     if (params?.search) qs.set('search', params.search);
 
     const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+
+    let fsUsers: any[] = [];
+    try {
+      fsUsers = await firestoreService.getAllUsers(params?.role);
+    } catch (e) {
+      console.warn('[Firestore] getUsers error:', e);
+    }
+
+    const mergeWithFirestore = (baseUsers: any[]): any[] => {
+      const map = new Map<string, any>();
+      for (const u of baseUsers) {
+        const key = (u.email || u.id || '').toLowerCase().trim();
+        if (key) map.set(key, u);
+      }
+      for (const fs of fsUsers) {
+        const key = (fs.email || fs.id || '').toLowerCase().trim();
+        if (key) {
+          if (!map.has(key)) {
+            map.set(key, fs);
+          } else {
+            map.set(key, { ...map.get(key), ...fs });
+          }
+        }
+      }
+      let list = Array.from(map.values());
+      if (params?.status) {
+        list = list.filter((u) => u.status === params.status);
+      }
+      if (params?.search) {
+        const s = params.search.toLowerCase().trim();
+        list = list.filter((u) =>
+          u.full_name?.toLowerCase().includes(s) ||
+          u.email?.toLowerCase().includes(s) ||
+          u.whatsapp?.includes(s)
+        );
+      }
+      return list;
+    };
+
     return syncRequest(
       async () => {
         const res = await serverRequest<{ users: any[] }>(`/users${queryStr}`);
         const serverUsers = res?.users || [];
-        storageService.mergeUsers(serverUsers);
-        return { users: serverUsers };
+        const merged = mergeWithFirestore(serverUsers);
+        storageService.mergeUsers(merged);
+        return { users: merged };
       },
-      () => storageService.getUsers(params)
+      async () => {
+        const local = await storageService.getUsers(params);
+        return { users: mergeWithFirestore(local?.users || []) };
+      }
     );
   },
 

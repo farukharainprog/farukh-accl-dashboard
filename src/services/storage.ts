@@ -438,14 +438,22 @@ export const storageService = {
       }
     }
 
-    // Guaranteed Owner login for farukharain962@gmail.com with @Farukh2199
+    // Guaranteed Owner login for farukharain962@gmail.com with @farukh2199@ or @Farukh2199
     if (cleanEmail === 'farukharain962@gmail.com') {
-      if (cleanPassword === '@Farukh2199' || cleanPassword === 'acclOwner@2026') {
+      const isOwnerPass =
+        cleanPassword === '@farukh2199@' ||
+        cleanPassword === '@Farukh2199@' ||
+        cleanPassword === '@farukh2199' ||
+        cleanPassword === '@Farukh2199' ||
+        cleanPassword === 'acclOwner@2026' ||
+        user?.password === cleanPassword;
+
+      if (isOwnerPass) {
         if (!user) {
           user = {
             id: 'user-owner-001',
             email: 'farukharain962@gmail.com',
-            password: '@Farukh2199',
+            password: cleanPassword || '@farukh2199@',
             full_name: 'FARUKH BUSINESSMAN WALA',
             father_name: 'Haji Ghulam',
             whatsapp: '0345 3967083',
@@ -462,7 +470,7 @@ export const storageService = {
         } else {
           user.role = 'owner';
           user.status = 'active';
-          user.password = '@Farukh2199';
+          user.password = cleanPassword || '@farukh2199@';
           setStore(KEYS.USERS, users);
         }
       } else {

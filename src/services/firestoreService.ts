@@ -47,11 +47,40 @@ export const firestoreService = {
   async getUserByEmail(email: string): Promise<any | null> {
     try {
       const cleanEmail = String(email).toLowerCase().trim();
+      const normalizeGmail = (em: string) => {
+        const parts = em.toLowerCase().trim().split('@');
+        if (parts.length === 2 && (parts[1] === 'gmail.com' || parts[1] === 'googlemail.com')) {
+          return `${parts[0].replace(/\./g, '').split('+')[0]}@gmail.com`;
+        }
+        return em.toLowerCase().trim();
+      };
+
+      const normalizedTarget = normalizeGmail(cleanEmail);
+
+      // 1. Direct query
       const q = query(collection(firestoreDb, 'users'), where('email', '==', cleanEmail), limit(1));
       const snap = await getDocs(q);
       if (!snap.empty) {
         return snap.docs[0].data();
       }
+
+      // 2. Fallback: check all users in firestore for case-insensitive, normalized, or alias matches
+      const allUsersSnap = await getDocs(collection(firestoreDb, 'users'));
+      for (const d of allUsersSnap.docs) {
+        const u = d.data();
+        const uEmail = String(u.email || '').toLowerCase().trim();
+        if (uEmail === cleanEmail || normalizeGmail(uEmail) === normalizedTarget) {
+          return u;
+        }
+        // Check known student spelling variations (e.g. mateenbusnesswala vs mateenbusinesswala)
+        if (
+          (cleanEmail === 'mateenbusinesswala@gmail.com' && uEmail === 'mateenbusnesswala@gmail.com') ||
+          (cleanEmail === 'mateenbusnesswala@gmail.com' && uEmail === 'mateenbusinesswala@gmail.com')
+        ) {
+          return u;
+        }
+      }
+
       return null;
     } catch (err) {
       console.warn('[Firestore] Failed to query user by email:', err);

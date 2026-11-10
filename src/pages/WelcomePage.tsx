@@ -22,81 +22,21 @@ interface WelcomePageProps {
 export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const { login, settings } = useAuth();
 
-  // Mode: 'student' (Google/Gmail Sign-in) vs 'owner' (Owner & Staff Password Sign-in)
+  // Mode: 'student' (Student Gmail Sign-in) vs 'owner' (Owner Password Sign-in)
   const [authMode, setAuthMode] = useState<'student' | 'owner'>('student');
 
   // Student Google / Gmail Sign-In state
   const [studentGmail, setStudentGmail] = useState('');
-  const [studentName, setStudentName] = useState('');
   const [studentLoading, setStudentLoading] = useState(false);
   const [studentError, setStudentError] = useState('');
   const [unregisteredNotice, setUnregisteredNotice] = useState(false);
   const [pendingNotice, setPendingNotice] = useState(false);
 
-  // Student sign-in sub-mode: 'google' vs 'password'
-  const [studentAuthType, setStudentAuthType] = useState<'google' | 'password'>('google');
-  const [studentPassword, setStudentPassword] = useState('');
-  const [studentPassLoading, setStudentPassLoading] = useState(false);
-
-  // Owner / Staff Password Sign-In state
-  const [ownerEmail, setOwnerEmail] = useState('');
+  // Owner Password Sign-In state (Permanent Owner: farukharain962@gmail.com)
+  const [ownerEmail, setOwnerEmail] = useState('farukharain962@gmail.com');
   const [ownerPassword, setOwnerPassword] = useState('');
   const [ownerLoading, setOwnerLoading] = useState(false);
   const [ownerError, setOwnerError] = useState('');
-
-  // Handle Student Email & Password Sign-In
-  const handleStudentPasswordSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStudentError('');
-    setUnregisteredNotice(false);
-    setPendingNotice(false);
-
-    if (!studentGmail.trim()) {
-      setStudentError('Please enter your registered Gmail / Email address.');
-      return;
-    }
-    if (!studentPassword.trim()) {
-      setStudentError('Please enter your password.');
-      return;
-    }
-
-    setStudentPassLoading(true);
-
-    try {
-      const res = await api.login({
-        email: studentGmail.trim().toLowerCase(),
-        password: studentPassword.trim(),
-      });
-
-      if (res.user?.status === 'pending' || res.isPending) {
-        setPendingNotice(true);
-        setStudentError('Your admission is under review by Farukh Businessman Wala. Please allow up to 12 hours for approval.');
-        return;
-      }
-
-      if (res.user?.status === 'suspended' || res.user?.status === 'rejected') {
-        setStudentError('Your student account is not active. Please contact Farukh Businessman Wala on WhatsApp.');
-        return;
-      }
-
-      // Remember last signed in student Gmail on this device
-      try {
-        localStorage.setItem('accl_last_student_gmail', studentGmail.trim().toLowerCase());
-      } catch {}
-
-      login(res.token, res.user);
-      onSuccessLogin();
-    } catch (err: any) {
-      if (err?.data?.isUnregistered || err?.message?.toLowerCase().includes('not registered') || err?.message?.toLowerCase().includes('incorrect email')) {
-        setUnregisteredNotice(true);
-      } else if (err?.data?.isPending || err?.message?.toLowerCase().includes('sabar') || err?.message?.toLowerCase().includes('pending')) {
-        setPendingNotice(true);
-      }
-      setStudentError(err?.message || 'Login failed. Please check your email and password.');
-    } finally {
-      setStudentPassLoading(false);
-    }
-  };
 
   const dashboardTitle = settings?.dashboard_title || 'Farukh Businessman Wala ACCL Dashboard';
   const academyName = settings?.academy_name || 'Rehan School Tuition Academy';
@@ -122,7 +62,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
     try {
       const res = await api.googleLogin({
         email: studentGmail.trim().toLowerCase(),
-        full_name: studentName.trim() || undefined,
       });
 
       if (res.user?.status === 'pending' || res.isPending) {
@@ -136,12 +75,9 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
         return;
       }
 
-      // Remember last signed in student Gmail on this laptop
+      // Remember last signed in student Gmail on this device
       try {
         localStorage.setItem('accl_last_student_gmail', studentGmail.trim().toLowerCase());
-        if (studentName.trim()) {
-          localStorage.setItem('accl_last_student_name', studentName.trim());
-        }
       } catch {}
 
       login(res.token, res.user);
@@ -184,13 +120,11 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
     }
   };
 
-  // Auto-fill last used student Gmail on this laptop for frictionless access
+  // Auto-fill last used student Gmail on this device for frictionless access
   React.useEffect(() => {
     try {
       const savedGmail = localStorage.getItem('accl_last_student_gmail');
-      const savedName = localStorage.getItem('accl_last_student_name');
       if (savedGmail) setStudentGmail(savedGmail);
-      if (savedName) setStudentName(savedName);
     } catch {}
   }, []);
 
@@ -242,8 +176,8 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
       {/* Main Login Viewport */}
       <main className="max-w-md w-full mx-auto p-4 sm:p-6 my-auto">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-8">
-          {/* Role Mode Switcher Tabs */}
-          <div className="flex rounded-xl bg-slate-100 p-1 mb-6 text-xs font-semibold">
+          {/* Two Primary Options: STUDENT SIGN IN and OWNER SIGN IN */}
+          <div className="grid grid-cols-2 gap-2 p-1.5 rounded-xl bg-slate-100 mb-6">
             <button
               type="button"
               onClick={() => {
@@ -251,14 +185,14 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 setStudentError('');
                 setUnregisteredNotice(false);
               }}
-              className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
                 authMode === 'student'
-                  ? 'bg-white text-blue-700 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'bg-transparent text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
               }`}
             >
-              <GraduationCap className="w-4 h-4 text-blue-600" />
-              <span>Student Sign In</span>
+              <GraduationCap className="w-4 h-4" />
+              <span>STUDENT SIGN IN</span>
             </button>
 
             <button
@@ -267,25 +201,25 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 setAuthMode('owner');
                 setOwnerError('');
               }}
-              className={`flex-1 py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
                 authMode === 'owner'
-                  ? 'bg-white text-slate-900 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white shadow-md'
+                  : 'bg-transparent text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
               }`}
             >
-              <ShieldCheck className="w-4 h-4 text-indigo-600" />
-              <span>Owner & Staff</span>
+              <ShieldCheck className="w-4 h-4" />
+              <span>OWNER SIGN IN</span>
             </button>
           </div>
 
           {/* ========================================================= */}
-          {/* TAB 1: STUDENT GOOGLE / GMAIL SIGN IN                      */}
+          {/* OPTION 1: STUDENT SIGN IN (Gmail Only, No Portal Password) */}
           {/* ========================================================= */}
           {authMode === 'student' && (
             <div>
               <div className="text-center mb-6">
                 <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mx-auto mb-3">
-                  {/* Google SVG G-Logo */}
+                  {/* Google G-Logo */}
                   <svg className="w-6 h-6" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
@@ -305,9 +239,9 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                     />
                   </svg>
                 </div>
-                <h2 className="text-lg font-bold text-slate-900">Sign in with Google</h2>
+                <h2 className="text-lg font-bold text-slate-900">STUDENT SIGN IN</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Access your daily ACCL tasks, attendance tracker, and submissions
+                  Enter your registered Gmail address to open your dashboard
                 </p>
               </div>
 
@@ -318,10 +252,10 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                     <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                     <div>
                       <h4 className="font-bold text-amber-900 mb-1">
-                        Gmail Not Yet Registered
+                        Gmail Not Registered
                       </h4>
                       <p className="leading-relaxed">
-                        This Gmail address is not yet registered by the Owner (<strong>Farukh Businessman Wala</strong>). Students must be registered by the Owner first.
+                        This Gmail address is not yet registered by the Owner (<strong>Farukh Businessman Wala</strong>). Students must be registered by the Owner in the Academy database first.
                       </p>
                       <a
                         href={`${primaryWaLink}?text=${encodeURIComponent(`Hello Farukh Businessman Wala, please register my student Gmail account: ${studentGmail}`)}`}
@@ -330,7 +264,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                         className="inline-flex items-center gap-1.5 mt-2.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors text-[11px]"
                       >
                         <MessageCircle className="w-3.5 h-3.5" />
-                        <span>Request Owner on WhatsApp to Register Me</span>
+                        <span>Contact Farukh Businessman Wala on WhatsApp</span>
                       </a>
                     </div>
                   </div>
@@ -347,7 +281,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                         Account Under Review
                       </h4>
                       <p className="leading-relaxed">
-                        Your admission is currently under review by <strong>Farukh Businessman Wala</strong>. Please allow up to 12 hours for the Owner to activate your access.
+                        Your admission is currently under review by <strong>Farukh Businessman Wala</strong>. Please allow up to 12 hours for activation.
                       </p>
                     </div>
                   </div>
@@ -362,146 +296,62 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </div>
               )}
 
-              {/* Streamlined Student Google / Gmail Sign-In Form */}
-              {!studentAuthType || studentAuthType === 'google' ? (
-                <form onSubmit={handleStudentGoogleSignIn} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Your Registered Gmail Address
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="email"
-                        required
-                        placeholder="student@gmail.com"
-                        value={studentGmail}
-                        onChange={(e) => setStudentGmail(e.target.value)}
-                        className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
-                      />
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Enter the Gmail address registered by Farukh Businessman Wala
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Full Name <span className="text-slate-400 font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Enter your student name"
-                      value={studentName}
-                      onChange={(e) => setStudentName(e.target.value)}
-                      className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
-                    />
-                  </div>
-
-                  {/* Primary Google Sign In Action Button */}
-                  <button
-                    type="submit"
-                    disabled={studentLoading}
-                    className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {studentLoading ? (
-                      <span>Signing in securely...</span>
-                    ) : (
-                      <>
-                        <span>Sign In with Google</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
-
-                  <div className="text-center pt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStudentAuthType('password');
-                        setStudentError('');
-                      }}
-                      className="text-[11px] text-slate-500 hover:text-blue-700 font-medium underline cursor-pointer"
-                    >
-                      Have an account password? Sign in with password instead
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <form onSubmit={handleStudentPasswordSignIn} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Registered Email / Gmail
-                    </label>
+              {/* Student Gmail Form (No Separate Password Required) */}
+              <form onSubmit={handleStudentGoogleSignIn} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Your Registered Gmail Address
+                  </label>
+                  <div className="relative">
                     <input
                       type="email"
                       required
-                      placeholder="student@gmail.com"
+                      placeholder="e.g. yourname@gmail.com"
                       value={studentGmail}
                       onChange={(e) => setStudentGmail(e.target.value)}
                       className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
                     />
                   </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    No separate portal password needed. Your student profile will be loaded automatically.
+                  </p>
+                </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Password
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Enter your password"
-                      value={studentPassword}
-                      onChange={(e) => setStudentPassword(e.target.value)}
-                      className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-slate-50/50"
-                    />
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Default password: <code className="text-blue-700 font-bold bg-blue-50 px-1 py-0.5 rounded">acclStudent@2026</code>
-                    </p>
-                  </div>
+                <button
+                  type="submit"
+                  disabled={studentLoading}
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {studentLoading ? (
+                    <span>Identifying student account...</span>
+                  ) : (
+                    <>
+                      <span>CONTINUE TO STUDENT DASHBOARD</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
 
-                  <button
-                    type="submit"
-                    disabled={studentPassLoading}
-                    className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    <Lock className="w-4 h-4" />
-                    <span>{studentPassLoading ? 'Signing in...' : 'Sign In with Password'}</span>
-                  </button>
-
-                  <div className="text-center pt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStudentAuthType('google');
-                        setStudentError('');
-                      }}
-                      className="text-[11px] text-slate-500 hover:text-blue-700 font-medium underline cursor-pointer"
-                    >
-                      ← Back to Google Sign-In
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              <div className="mt-5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500 space-y-1">
-                <p className="font-semibold text-slate-700">Permanent Device Session</p>
+              <div className="mt-5 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-600 space-y-1">
+                <p className="font-bold text-slate-800">📱 Access From Any Device</p>
                 <p>
-                  Your account and task submissions remain permanently saved on this device (laptops & mobile phones).
+                  You can sign in from your mobile phone, laptop, Chromebook, or any browser. Your submitted tasks, attendance, and progress will appear automatically.
                 </p>
               </div>
             </div>
           )}
 
           {/* ========================================================= */}
-          {/* TAB 2: OWNER & STAFF LOGIN WITH PASSWORD                   */}
+          {/* OPTION 2: OWNER SIGN IN (Gmail + Password Required)        */}
           {/* ========================================================= */}
           {authMode === 'owner' && (
             <div>
               <div className="text-center mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-3">
-                  <ShieldCheck className="w-6 h-6 text-indigo-700" />
+                <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto mb-3 shadow-md">
+                  <ShieldCheck className="w-6 h-6 text-amber-300" />
                 </div>
-                <h2 className="text-lg font-bold text-slate-900">Owner & Staff Login</h2>
+                <h2 className="text-lg font-bold text-slate-900">OWNER SIGN IN</h2>
                 <p className="text-xs text-slate-500 mt-1">
                   Farukh Businessman Wala Administration Portal
                 </p>
@@ -517,21 +367,24 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
               <form onSubmit={handleOwnerLoginSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Owner Email Address
+                    Permanent Owner Gmail
                   </label>
                   <input
                     type="email"
                     required
-                    placeholder="Enter owner email"
+                    placeholder="farukharain962@gmail.com"
                     value={ownerEmail}
                     onChange={(e) => setOwnerEmail(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-slate-800 bg-slate-50 font-medium text-slate-900"
                   />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Authorized Owner account: <span className="font-semibold text-slate-700">farukharain962@gmail.com</span>
+                  </p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Password
+                    Owner Password
                   </label>
                   <input
                     type="password"
@@ -539,28 +392,22 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                     placeholder="Enter owner password"
                     value={ownerPassword}
                     onChange={(e) => setOwnerPassword(e.target.value)}
-                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-slate-800"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={ownerLoading}
-                  className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <Lock className="w-4 h-4" />
-                  <span>{ownerLoading ? 'Verifying...' : 'Sign in as Owner'}</span>
+                  <Lock className="w-4 h-4 text-amber-300" />
+                  <span>{ownerLoading ? 'Verifying Credentials...' : 'SIGN IN TO OWNER DASHBOARD'}</span>
                 </button>
               </form>
 
-              <div className="mt-4 text-center">
-                <button
-                  type="button"
-                  onClick={() => setAuthMode('student')}
-                  className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer"
-                >
-                  ← Back to Student Google Sign-In
-                </button>
+              <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500">
+                <span>Only the authorized Academy Owner has access to owner management tools and review queue.</span>
               </div>
             </div>
           )}
