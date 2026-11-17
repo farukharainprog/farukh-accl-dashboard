@@ -19,6 +19,7 @@ import {
   AttendanceHistoryPage,
   AdminSettingsPage,
   OwnerDashboardPage,
+  TeacherDashboardPage,
 } from './pages';
 import {
   Clock,
@@ -33,7 +34,9 @@ import {
 const DashboardContent: React.FC = () => {
   const { user, token, isLoading, isPending, settings, isOwner, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
-    return (user?.role === 'owner' || user?.role === 'admin') ? 'owner_dashboard' : 'all_tasks';
+    if (user?.role === 'owner' || user?.role === 'admin') return 'owner_dashboard';
+    if (user?.role === 'teacher') return 'teacher_dashboard';
+    return 'all_tasks';
   });
   const [showProfile, setShowProfile] = useState<boolean>(false);
 
@@ -41,6 +44,8 @@ const DashboardContent: React.FC = () => {
   React.useEffect(() => {
     if ((user?.role === 'owner' || user?.role === 'admin') && activeTab === 'all_tasks') {
       setActiveTab('owner_dashboard');
+    } else if (user?.role === 'teacher' && (activeTab === 'all_tasks' || activeTab === 'owner_dashboard')) {
+      setActiveTab('teacher_dashboard');
     }
   }, [user?.role]);
 
@@ -60,7 +65,19 @@ const DashboardContent: React.FC = () => {
 
   // If user is not authenticated, show Welcome Landing Page
   if (!token || !user) {
-    return <WelcomePage onSuccessLogin={() => setActiveTab('all_tasks')} />;
+    return (
+      <WelcomePage
+        onSuccessLogin={(loggedUser) => {
+          if (loggedUser?.role === 'owner' || loggedUser?.role === 'admin') {
+            setActiveTab('owner_dashboard');
+          } else if (loggedUser?.role === 'teacher') {
+            setActiveTab('teacher_dashboard');
+          } else {
+            setActiveTab('all_tasks');
+          }
+        }}
+      />
+    );
   }
 
   const primaryPhone = settings?.whatsapp_primary || '0345 3967083';
@@ -115,6 +132,7 @@ const DashboardContent: React.FC = () => {
 
           {/* VIEW ROUTING */}
           {activeTab === 'owner_dashboard' && <OwnerDashboardPage />}
+          {activeTab === 'teacher_dashboard' && <TeacherDashboardPage />}
 
           {activeTab === 'all_tasks' && (
             <StudentDashboard

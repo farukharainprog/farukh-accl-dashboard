@@ -59,8 +59,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [showAddTaskModal, setShowAddTaskModal] = useState<boolean>(false);
 
   const taskListRef = useRef<HTMLDivElement>(null);
+  const fetchInFlightRef = useRef<boolean>(false);
 
   const fetchDashboardData = async (silent = false) => {
+    if (silent && fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     if (!silent) setLoading(true);
     try {
       // 1. Always load tasks first
@@ -112,6 +115,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
+      fetchInFlightRef.current = false;
       if (!silent) setLoading(false);
     }
   };

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
-import { db } from './db.js';
+import { db, findUserByEmailOrAlias, ensureUserInSqlite, ensureDatabaseInitialized } from './db.js';
+import { fetchFirestoreUserById } from './firestoreClient.js';
 import type { User, UserRole, UserProfile } from './types.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'accl-farukh-businessman-wala-secret-key-2026';
@@ -47,9 +48,9 @@ export function verifyToken(token: string): { userId: string; role: UserRole } |
     if (token.startsWith('token-')) {
       const parts = token.split('-');
       if (parts.length >= 3) {
-        // userId may contain hyphens (e.g. UUID)
         const userId = parts.slice(1, parts.length - 1).join('-');
-        const u = db.prepare('SELECT id, role FROM users WHERE id = ? OR LOWER(TRIM(email)) = LOWER(TRIM(?))').get(userId, userId) as { id: string; role: UserRole } | undefined;
+        const u = (db.prepare('SELECT id, role FROM users WHERE id = ? OR LOWER(TRIM(email)) = LOWER(TRIM(?))').get(userId, userId) as { id: string; role: UserRole } | undefined)
+          || findUserByEmailOrAlias<{ id: string; role: UserRole }>(userId);
         if (u) {
           return { userId: u.id, role: u.role };
         }
@@ -63,7 +64,8 @@ export function verifyToken(token: string): { userId: string; role: UserRole } |
       if (parts.length >= 3) {
         const identifier = parts.slice(2, parts.length - 1).join('_');
         const cleanIdent = identifier.toLowerCase().trim();
-        const u = db.prepare('SELECT id, role FROM users WHERE id = ? OR LOWER(TRIM(email)) = ?').get(identifier, cleanIdent) as { id: string; role: UserRole } | undefined;
+        const u = (db.prepare('SELECT id, role FROM users WHERE id = ? OR LOWER(TRIM(email)) = ?').get(identifier, cleanIdent) as { id: string; role: UserRole } | undefined)
+          || findUserByEmailOrAlias<{ id: string; role: UserRole }>(cleanIdent);
         if (u) {
           return { userId: u.id, role: u.role };
         }
@@ -86,77 +88,111 @@ export function verifyToken(token: string): { userId: string; role: UserRole } |
   }
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
-  const authHeader = req.headers.authorization || req.headers['x-auth-token'];
-  let token = '';
+export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    ensureDatabaseInitialized();
+    const authHeader = req.headers.authorization || req.headers['x-auth-token'];
+    let token = '';
 
-  if (typeof authHeader === 'string') {
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7).trim();
-    } else {
-      token = authHeader.trim();
+    if (typeof authHeader === 'string') {
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7).trim();
+      } else {
+        token = authHeader.trim();
+      }
     }
-  }
 
-  if (!token) {
-    res.status(401).json({ error: 'Authentication required. Please log in.' });
-    return;
-  }
+    if (!token) {
+      res.status(401).json({ error: 'Authentication required. Please log in.' });
+      return;
+    }
 
-  const verified = verifyToken(token);
-  if (!verified) {
-    res.status(401).json({ error: 'Session expired or invalid token. Please log in again.' });
-    return;
-  }
+    const verified = verifyToken(token);
+    if (!verified) {
+      res.status(401).json({ error: 'Session expired or invalid token. Please log in again.' });
+      return;
+    }
 
-  const user = db.prepare(`
-    SELECT u.*, t.full_name as assigned_teacher_name
-    FROM users u
-    LEFT JOIN users t ON u.assigned_teacher_id = t.id
-    WHERE u.id = ? OR LOWER(TRIM(u.email)) = LOWER(TRIM(?))
-  `).get(verified.userId, verified.userId) as (User & { assigned_teacher_name?: string }) | undefined;
+    let user = (db.prepare(`
+      SELECT u.*, t.full_name as assigned_teacher_name
+      FROM users u
+      LEFT JOIN users t ON u.assigned_teacher_id = t.id
+      WHERE u.id = ? OR LOWER(TRIM(u.email)) = LOWER(TRIM(?))
+    `).get(verified.userId, verified.userId) as (User & { assigned_teacher_name?: string }) | undefined)
+      || (verified.userId.includes('@') ? findUserByEmailOrAlias<User & { assigned_teacher_name?: string }>(verified.userId) : undefined);
 
-  if (!user) {
-    // If verified through fs_token or client fallback, provide an active student session
+    if (!user) {
+      // Hydrate from Firestore if available (prevents FK crash and restores teacher/student role & scoping)
+      const fsUser = await fetchFirestoreUserById(verified.userId);
+      if (fsUser) {
+        ensureUserInSqlite(fsUser);
+        user = db.prepare(`
+          SELECT u.*, t.full_name as assigned_teacher_name
+          FROM users u
+          LEFT JOIN users t ON u.assigned_teacher_id = t.id
+          WHERE u.id = ? OR LOWER(TRIM(u.email)) = LOWER(TRIM(?))
+        `).get(fsUser.id || verified.userId, fsUser.email || verified.userId) as (User & { assigned_teacher_name?: string }) | undefined;
+      }
+    }
+
+    if (!user) {
+      // Ensure non-owner verified fallback session exists in SQLite users table to satisfy foreign keys
+      const fallbackRole: UserRole = verified.role === 'teacher' || verified.role === 'admin' ? verified.role : 'student';
+      const fallbackEmail = verified.userId.includes('@') ? verified.userId.toLowerCase().trim() : `${verified.userId}@accl.student`;
+      const created = ensureUserInSqlite({
+        id: verified.userId,
+        email: fallbackEmail,
+        full_name: 'Student',
+        role: fallbackRole,
+        status: 'active',
+        learning_level: 'Book 1',
+      });
+      req.user = {
+        id: created?.id || verified.userId,
+        email: created?.email || fallbackEmail,
+        full_name: created?.full_name || 'Student',
+        father_name: created?.father_name || null,
+        whatsapp: created?.whatsapp || null,
+        role: (created?.role as UserRole) || fallbackRole,
+        status: created?.status || 'active',
+        learning_level: created?.learning_level || 'Book 1',
+        assigned_teacher_id: created?.assigned_teacher_id || null,
+        registered_by_id: created?.registered_by_id || null,
+        can_approve: Boolean(created?.can_approve),
+        can_admit: Boolean(created?.can_admit),
+        created_at: created?.created_at || new Date().toISOString(),
+      };
+      next();
+      return;
+    }
+
+    if (user.status === 'suspended') {
+      res.status(403).json({ error: 'Your account has been suspended by the academy administration.' });
+      return;
+    }
+
     req.user = {
-      id: verified.userId,
-      email: verified.userId.includes('@') ? verified.userId : `${verified.userId}@accl.student`,
-      full_name: 'Student',
-      father_name: null,
-      whatsapp: null,
-      role: verified.role || 'student',
-      status: 'active',
-      learning_level: 'Book 1',
-      assigned_teacher_id: null,
-      can_approve: verified.role === 'owner' || verified.role === 'admin',
-      can_admit: verified.role === 'owner' || verified.role === 'admin',
-      created_at: new Date().toISOString(),
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      father_name: user.father_name,
+      whatsapp: user.whatsapp,
+      role: user.role,
+      status: user.status,
+      learning_level: user.learning_level || 'Book 1',
+      assigned_teacher_id: user.assigned_teacher_id,
+      assigned_teacher_name: user.assigned_teacher_name,
+      registered_by_id: user.registered_by_id || null,
+      can_approve: Boolean(user.can_approve),
+      can_admit: Boolean(user.can_admit),
+      created_at: user.created_at,
     };
-    return next();
+
+    next();
+  } catch (err) {
+    console.error('[AuthMiddleware Error]:', err);
+    res.status(401).json({ error: 'Authentication verification failed.' });
   }
-
-  if (user.status === 'suspended') {
-    res.status(403).json({ error: 'Your account has been suspended by the academy administration.' });
-    return;
-  }
-
-  req.user = {
-    id: user.id,
-    email: user.email,
-    full_name: user.full_name,
-    father_name: user.father_name,
-    whatsapp: user.whatsapp,
-    role: user.role,
-    status: user.status,
-    learning_level: user.learning_level || 'Book 1',
-    assigned_teacher_id: user.assigned_teacher_id,
-    assigned_teacher_name: user.assigned_teacher_name,
-    can_approve: Boolean(user.can_approve),
-    can_admit: Boolean(user.can_admit),
-    created_at: user.created_at,
-  };
-
-  next();
 }
 
 export function requireRole(...roles: UserRole[]) {

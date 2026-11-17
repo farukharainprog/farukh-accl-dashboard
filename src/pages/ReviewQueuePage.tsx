@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { ReviewModal } from '../components/ReviewModal';
@@ -23,34 +23,48 @@ export const ReviewQueuePage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [selectedSubmission, setSelectedSubmission] = useState<any | null>(null);
 
+  const queueInFlightRef = useRef(false);
+
   const fetchQueue = async (silent = false) => {
+    if (silent && queueInFlightRef.current) return;
+    queueInFlightRef.current = true;
     if (!silent) setLoading(true);
     try {
       const res = await api.getReviewQueue({
         status: statusFilter || undefined,
         book: bookFilter || undefined,
-        search: search.trim() || undefined,
       });
       setSubmissions(res.submissions || []);
     } catch (err) {
       console.error('Failed to load review queue:', err);
     } finally {
+      queueInFlightRef.current = false;
       if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchQueue();
-    // Real-time synchronization: poll every 2 seconds across devices
+    // Real-time synchronization: poll every 3.5 seconds across devices
     const interval = setInterval(() => {
       fetchQueue(true);
-    }, 2000);
+    }, 3500);
     return () => clearInterval(interval);
   }, [statusFilter, bookFilter]);
 
+  const filteredSubmissions = useMemo(() => {
+    if (!search.trim()) return submissions;
+    const q = search.toLowerCase();
+    return submissions.filter((sub) =>
+      sub.student_name?.toLowerCase().includes(q) ||
+      sub.student_email?.toLowerCase().includes(q) ||
+      sub.task_title?.toLowerCase().includes(q) ||
+      String(sub.task_day || '').includes(q)
+    );
+  }, [submissions, search]);
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchQueue();
   };
 
   return (
@@ -154,7 +168,7 @@ export const ReviewQueuePage: React.FC = () => {
         <div className="text-center py-12 text-slate-500 text-xs">
           Loading submissions queue...
         </div>
-      ) : submissions.length === 0 ? (
+      ) : filteredSubmissions.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
           <CheckCircle2 className="w-12 h-12 text-slate-300 mx-auto mb-2" />
           <h3 className="text-sm font-bold text-slate-700">No submissions found</h3>
@@ -164,7 +178,7 @@ export const ReviewQueuePage: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3">
-          {submissions.map((sub) => (
+          {filteredSubmissions.map((sub) => (
             <div
               key={sub.id}
               className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs hover:border-blue-300 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"

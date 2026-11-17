@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
 import { queryAll, queryOne, execute, logAudit, getStudentIdAliases } from '../db.js';
-import { authMiddleware, requireRole, type AuthRequest } from '../auth.js';
+import { authMiddleware, requireRole, verifyToken, type AuthRequest } from '../auth.js';
 import type { TaskItem } from '../types.js';
 
 export const tasksRouter = Router();
@@ -13,6 +13,9 @@ function getOptionalUserId(req: AuthRequest): string | null {
     const token = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
       ? authHeader.substring(7).trim()
       : typeof authHeader === 'string' ? authHeader.trim() : '';
+    if (!token) return null;
+    const verified = verifyToken(token);
+    if (verified?.userId) return verified.userId;
     const [data] = token.split('.');
     if (!data) return null;
     const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));

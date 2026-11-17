@@ -147,6 +147,12 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
   `);
 
+  // Non-destructive column migration for registered_by_id
+  const userCols = queryAll<{ name: string }>('PRAGMA table_info(users)');
+  if (!userCols.some((c) => c.name === 'registered_by_id')) {
+    db.exec('ALTER TABLE users ADD COLUMN registered_by_id TEXT;');
+  }
+
   // Tasks table
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -490,4 +496,107 @@ export function getStudentIdAliases(studentId: string): string[] {
     list.push('std_1793115679818_1ndy', 'student');
   }
   return Array.from(new Set(list));
+}
+
+export function normalizeGmail(email: string): string {
+  const clean = String(email || '').toLowerCase().trim();
+  const parts = clean.split('@');
+  if (parts.length === 2 && (parts[1] === 'gmail.com' || parts[1] === 'googlemail.com')) {
+    return `${parts[0].replace(/\./g, '').split('+')[0]}@gmail.com`;
+  }
+  return clean;
+}
+
+export function findUserByEmailOrAlias<T = any>(email: string): T | undefined {
+  const cleanEmail = String(email || '').toLowerCase().trim();
+  if (!cleanEmail) return undefined;
+
+  const baseSql = `
+    SELECT u.*, t.full_name as assigned_teacher_name
+    FROM users u
+    LEFT JOIN users t ON u.assigned_teacher_id = t.id
+  `;
+
+  // 1. Direct email match
+  let user = queryOne<T>(`${baseSql} WHERE LOWER(TRIM(u.email)) = LOWER(TRIM(?)) LIMIT 1`, cleanEmail);
+  if (user) return user;
+
+  // 2. Mateen spelling variation match
+  if (cleanEmail === 'mateenbusinesswala@gmail.com') {
+    user = queryOne<T>(`${baseSql} WHERE LOWER(TRIM(u.email)) = 'mateenbusnesswala@gmail.com' LIMIT 1`);
+    if (user) return user;
+  } else if (cleanEmail === 'mateenbusnesswala@gmail.com') {
+    user = queryOne<T>(`${baseSql} WHERE LOWER(TRIM(u.email)) = 'mateenbusinesswala@gmail.com' LIMIT 1`);
+    if (user) return user;
+  }
+
+  // 3. Normalized Gmail (dots / +tag) match
+  const normalizedTarget = normalizeGmail(cleanEmail);
+  const allUsers = queryAll<any>(`${baseSql}`);
+  return allUsers.find((u) => normalizeGmail(u.email || '') === normalizedTarget) as T | undefined;
+}
+
+export function ensureUserInSqlite(profile: {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  father_name?: string | null;
+  whatsapp?: string | null;
+  role?: string | null;
+  status?: string | null;
+  learning_level?: string | null;
+  assigned_teacher_id?: string | null;
+  registered_by_id?: string | null;
+  password_hash?: string | null;
+  salt?: string | null;
+  can_approve?: number | boolean;
+  can_admit?: number | boolean;
+  created_at?: string | null;
+}): any {
+  const cleanId = String(profile.id || '').trim();
+  if (!cleanId) return null;
+
+  const byId = queryOne<any>('SELECT * FROM users WHERE id = ?', cleanId);
+  if (byId) return byId;
+
+  const cleanEmail = profile.email
+    ? String(profile.email).toLowerCase().trim()
+    : (cleanId.includes('@') ? cleanId.toLowerCase().trim() : `${cleanId}@accl.student`);
+
+  const byEmail = findUserByEmailOrAlias<any>(cleanEmail);
+  if (byEmail) return byEmail;
+
+  // Never auto-promote an unknown record to owner unless permanent owner email
+  let safeRole = profile.role || 'student';
+  if (safeRole === 'owner' && cleanEmail !== 'farukharain962@gmail.com') {
+    safeRole = 'student';
+  }
+
+  const now = new Date().toISOString();
+  execute(`
+    INSERT OR IGNORE INTO users (
+      id, email, password_hash, salt, full_name, father_name, whatsapp,
+      role, status, learning_level, assigned_teacher_id, registered_by_id,
+      can_approve, can_admit, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `,
+    cleanId,
+    cleanEmail,
+    profile.password_hash || 'google_verified',
+    profile.salt || 'google_salt',
+    (profile.full_name && String(profile.full_name).trim()) || 'Student',
+    profile.father_name || null,
+    profile.whatsapp || null,
+    safeRole,
+    profile.status || 'active',
+    profile.learning_level || 'Book 1',
+    profile.assigned_teacher_id || null,
+    profile.registered_by_id || null,
+    profile.can_approve ? 1 : 0,
+    profile.can_admit ? 1 : 0,
+    profile.created_at || now,
+    now
+  );
+
+  return queryOne<any>('SELECT * FROM users WHERE id = ?', cleanId);
 }

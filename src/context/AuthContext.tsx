@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { UserProfile, AcademySettings } from '../types';
 import { api, getStoredToken, setStoredToken, removeStoredToken } from '../services/api';
+import { storageService } from '../services/storage';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -49,6 +50,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUser = useCallback(async () => {
     const currentToken = getStoredToken();
     if (!currentToken) {
+      storageService.setCurrentUserSync(null);
       setUser(null);
       setIsLoading(false);
       return;
@@ -56,9 +58,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.getMe();
       setUser(res.user);
+      storageService.setCurrentUserSync(res.user);
     } catch (err) {
       console.warn('Session invalid or expired:', err);
       removeStoredToken();
+      storageService.setCurrentUserSync(null);
       setToken(null);
       setUser(null);
     } finally {
@@ -74,12 +78,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = (newToken: string, newUser: UserProfile) => {
     setStoredToken(newToken);
+    storageService.setCurrentUserSync(newUser);
     setToken(newToken);
     setUser(newUser);
   };
 
   const logout = () => {
     removeStoredToken();
+    storageService.setCurrentUserSync(null);
     setToken(null);
     setUser(null);
   };

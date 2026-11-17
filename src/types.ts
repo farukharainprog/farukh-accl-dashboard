@@ -13,6 +13,7 @@ export interface User {
   status: UserStatus;
   learning_level: string; // 'Book 1' | 'Book 2'
   assigned_teacher_id?: string | null;
+  registered_by_id?: string | null;
   can_approve: number | boolean;
   can_admit: number | boolean;
   created_at: string;
@@ -30,6 +31,7 @@ export interface UserProfile {
   learning_level: string;
   assigned_teacher_id?: string | null;
   assigned_teacher_name?: string | null;
+  registered_by_id?: string | null;
   can_approve: boolean;
   can_admit: boolean;
   created_at: string;
@@ -76,6 +78,8 @@ export interface Submission {
   updated_at?: string;
   student_name?: string;
   student_email?: string;
+  assigned_teacher_id?: string | null;
+  registered_by_id?: string | null;
   task_title?: string;
   task_day?: number;
   task_category?: string;

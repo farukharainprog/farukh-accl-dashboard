@@ -1,4 +1,5 @@
 import { ORIGINAL_TASKS } from '../data/seedTasks';
+import { isSubmissionForStudent } from '../utils/studentMatcher';
 import type {
   UserProfile,
   UserRole,
@@ -27,7 +28,44 @@ const KEYS = {
   TEACHER_APPS: 'accl_teacher_apps_v2',
   AUDIT_LOGS: 'accl_audit_logs_v2',
   TOKEN: 'accl_auth_token',
+  CURRENT_USER: 'accl_current_user_v2',
 };
+
+export function normalizeGmailClient(email: string): string {
+  const parts = String(email || '').toLowerCase().trim().split('@');
+  if (parts.length === 2 && (parts[1] === 'gmail.com' || parts[1] === 'googlemail.com')) {
+    return `${parts[0].replace(/\./g, '').split('+')[0]}@gmail.com`;
+  }
+  return String(email || '').toLowerCase().trim();
+}
+
+export function decodeTokenUserId(token: string | null): string | null {
+  if (!token) return null;
+  const legacyMatch = token.match(/^token-(.+?)-\d+$/);
+  if (legacyMatch) return legacyMatch[1];
+
+  const fsMatch = token.match(/^fs_token_(.+?)_\d+$/);
+  if (fsMatch) return fsMatch[1];
+
+  // Decode JWT header.payload.signature (base64url)
+  const parts = token.split('.');
+  if (parts.length >= 2 && parts[0]) {
+    try {
+      const base64 = parts[0].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+      const jsonStr = decodeURIComponent(
+        Array.from(atob(padded))
+          .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+          .join('')
+      );
+      const payload = JSON.parse(jsonStr);
+      return payload?.userId ? String(payload.userId) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 // Safe JSON Helpers
 function getStore<T>(key: string, defaultValue: T): T {
@@ -192,18 +230,43 @@ initializeStorage();
 
 // Storage API Implementation
 export const storageService = {
-  // Token
+  // Token & Current User Session Cache
   getStoredToken(): string | null {
     return localStorage.getItem(KEYS.TOKEN);
+  },
+  setCurrentUserSync(user: UserProfile | null): void {
+    if (user) {
+      setStore(KEYS.CURRENT_USER, user);
+    } else {
+      localStorage.removeItem(KEYS.CURRENT_USER);
+    }
   },
   getCurrentUserSync(): UserProfile | null {
     const token = localStorage.getItem(KEYS.TOKEN);
     if (!token) return null;
-    const match = token.match(/^token-(.+?)-\d+$/) || token.match(/^fs_token_(.+?)_\d+$/);
-    const userId = match ? match[1] : null;
+    const userId = decodeTokenUserId(token);
+    const cachedUser = getStore<UserProfile | null>(KEYS.CURRENT_USER, null);
     const users = getStore<any[]>(KEYS.USERS, []);
-    const user = users.find((u) => u.id === userId || u.email === userId);
-    if (!user) return null;
+
+    let user: any = null;
+    if (userId) {
+      const norm = normalizeGmailClient(userId);
+      user = users.find(
+        (u) =>
+          u.id === userId ||
+          String(u.email || '').toLowerCase().trim() === userId.toLowerCase().trim() ||
+          normalizeGmailClient(u.email || '') === norm
+      );
+    }
+
+    if (!user && cachedUser) {
+      if (!userId || cachedUser.id === userId || String(cachedUser.email || '').toLowerCase().trim() === userId.toLowerCase().trim()) {
+        return cachedUser;
+      }
+    }
+
+    if (!user) return cachedUser;
+
     return {
       id: user.id,
       email: user.email,
@@ -214,6 +277,8 @@ export const storageService = {
       status: user.status,
       learning_level: user.learning_level || 'Book 1',
       assigned_teacher_id: user.assigned_teacher_id,
+      registered_by_id: user.registered_by_id,
+      assigned_teacher_name: user.assigned_teacher_name,
       can_approve: Boolean(user.can_approve),
       can_admit: Boolean(user.can_admit),
       created_at: user.created_at,
@@ -224,6 +289,7 @@ export const storageService = {
   },
   removeStoredToken(): void {
     localStorage.removeItem(KEYS.TOKEN);
+    localStorage.removeItem(KEYS.CURRENT_USER);
   },
 
   // Auth: Check Owner
@@ -395,15 +461,18 @@ export const storageService = {
 
   // Auth: Login
   async login(data: any): Promise<{ message: string; token: string; user: UserProfile; isPending: boolean }> {
-    const { email, password } = data;
+    const { email, password, portal } = data;
     if (!email || !password) {
       throw new Error('Email and password are required.');
     }
 
     const users = getStore<any[]>(KEYS.USERS, []);
     const cleanEmail = String(email).toLowerCase().trim();
+    const normEmail = normalizeGmailClient(cleanEmail);
     const cleanPassword = String(password).trim();
-    let user = users.find((u) => u.email?.toLowerCase().trim() === cleanEmail);
+    let user = users.find(
+      (u) => u.email?.toLowerCase().trim() === cleanEmail || normalizeGmailClient(u.email || '') === normEmail
+    );
 
     // If user not in users yet, check admissions
     const admissions = getStore<any[]>(KEYS.ADMISSIONS, []);
@@ -422,6 +491,7 @@ export const storageService = {
           status: 'active',
           learning_level: adm.learning_level || 'Book 1',
           assigned_teacher_id: adm.assigned_teacher_id || null,
+          registered_by_id: adm.registered_by_id || null,
           can_approve: false,
           can_admit: false,
           created_at: new Date().toISOString(),
@@ -478,24 +548,33 @@ export const storageService = {
       }
     } else {
       if (!user) {
-        throw new Error('Incorrect Email ID. This email address is not registered in the portal. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083) to register your student admission.');
+        throw new Error(
+          portal === 'teacher'
+            ? 'No teacher account found for this Gmail address. Please ask the Academy Owner to register your teacher account first.'
+            : 'Incorrect Email ID. This email address is not registered in the portal. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083).'
+        );
       }
-      // Allow master override, standard default passwords, or save entered password if initial
+
+      if (portal === 'owner' && !['owner', 'admin'].includes(user.role)) {
+        throw new Error('Only the Academy Owner can access the Owner Portal.');
+      }
+
+      if (portal === 'teacher' && user.role === 'student') {
+        throw new Error('Student accounts cannot sign in to the Teacher Portal. Please use Student Sign In.');
+      }
+
       const isPassValid =
         user.password === cleanPassword ||
-        cleanPassword === '@Farukh2199' ||
-        cleanPassword === 'acclStudent@2026' ||
-        cleanPassword === 'student123' ||
-        cleanPassword === '123456' ||
-        !user.password;
+        (user.role === 'teacher' && !user.password && cleanPassword === 'teacher@accl2026') ||
+        (user.role === 'student' && (
+          cleanPassword === 'acclStudent@2026' ||
+          cleanPassword === 'student123' ||
+          cleanPassword === '123456' ||
+          !user.password
+        ));
 
       if (!isPassValid) {
-        throw new Error('Incorrect password. Please check your password or sign in with Google Sign-In.');
-      }
-
-      if (!user.password || user.password !== cleanPassword) {
-        user.password = cleanPassword;
-        setStore(KEYS.USERS, users);
+        throw new Error('Incorrect password. Please check your password and try again.');
       }
     }
 
@@ -520,7 +599,6 @@ export const storageService = {
     const token = `token-${user.id}-${Date.now()}`;
     storageService.setStoredToken(token);
 
-    // Look up assigned teacher name
     let assignedTeacherName = undefined;
     if (user.assigned_teacher_id) {
       const teacher = users.find((u) => u.id === user.assigned_teacher_id);
@@ -537,11 +615,14 @@ export const storageService = {
       status: user.status,
       learning_level: user.learning_level || 'Book 1',
       assigned_teacher_id: user.assigned_teacher_id,
+      registered_by_id: user.registered_by_id,
       assigned_teacher_name: assignedTeacherName,
       can_approve: Boolean(user.can_approve),
       can_admit: Boolean(user.can_admit),
       created_at: user.created_at,
     };
+
+    storageService.setCurrentUserSync(userProfile);
 
     return {
       message: 'Login successful.',
@@ -551,14 +632,21 @@ export const storageService = {
     };
   },
 
-  // Google / Gmail Sign-In
+  // Google / Gmail Sign-In (Students Only)
   async googleLogin(data: { email: string; full_name?: string }): Promise<any> {
     const { email, full_name } = data;
     if (!email) throw new Error('Gmail address is required.');
 
     const cleanEmail = email.toLowerCase().trim();
+    const normEmail = normalizeGmailClient(cleanEmail);
     const users = getStore<any[]>(KEYS.USERS, []);
-    let user = users.find((u) => u.email?.toLowerCase().trim() === cleanEmail);
+    let user = users.find(
+      (u) =>
+        u.email?.toLowerCase().trim() === cleanEmail ||
+        normalizeGmailClient(u.email || '') === normEmail ||
+        (cleanEmail === 'mateenbusinesswala@gmail.com' && u.email?.toLowerCase().trim() === 'mateenbusnesswala@gmail.com') ||
+        (cleanEmail === 'mateenbusnesswala@gmail.com' && u.email?.toLowerCase().trim() === 'mateenbusinesswala@gmail.com')
+    );
 
     if (!user) {
       const admissions = getStore<any[]>(KEYS.ADMISSIONS, []);
@@ -576,6 +664,7 @@ export const storageService = {
           status: 'active',
           learning_level: adm.learning_level || 'Book 1',
           assigned_teacher_id: adm.assigned_teacher_id || null,
+          registered_by_id: adm.registered_by_id || null,
           can_approve: false,
           can_admit: false,
           created_at: new Date().toISOString(),
@@ -590,7 +679,15 @@ export const storageService = {
     }
 
     if (!user) {
-      throw new Error(`This Gmail address (${cleanEmail}) is not yet registered in the portal. Students must be registered by Farukh Businessman Wala in the Owner Dashboard first. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083) to register your student account.`);
+      throw new Error(`This Gmail address (${cleanEmail}) is not yet registered in the portal. Students must be registered by Farukh Businessman Wala or an assigned Teacher first. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083).`);
+    }
+
+    if (user.role === 'owner' || user.role === 'admin' || user.role === 'teacher') {
+      throw new Error(
+        user.role === 'teacher'
+          ? 'Teachers must sign in via Teacher Sign In with their Gmail and password.'
+          : 'Owner must sign in via Owner Sign In with Gmail and password.'
+      );
     }
 
     if (user.status === 'suspended') {
@@ -623,10 +720,13 @@ export const storageService = {
       status: user.status,
       learning_level: user.learning_level || 'Book 1',
       assigned_teacher_id: user.assigned_teacher_id,
+      registered_by_id: user.registered_by_id,
       can_approve: Boolean(user.can_approve),
       can_admit: Boolean(user.can_admit),
       created_at: user.created_at,
     };
+
+    storageService.setCurrentUserSync(userProfile);
 
     return {
       message: 'Signed in successfully with Google!',
@@ -635,23 +735,37 @@ export const storageService = {
     };
   },
 
-  async registerStudentByOwner(data: { full_name: string; whatsapp: string; email: string; learning_level?: string }): Promise<any> {
-    const { full_name, whatsapp, email, learning_level } = data;
+  async registerStudentByOwner(data: { id?: string; full_name: string; whatsapp: string; email: string; learning_level?: string; assigned_teacher_id?: string | null; registered_by_id?: string | null }): Promise<any> {
+    const { id: passedId, full_name, whatsapp, email, learning_level, assigned_teacher_id, registered_by_id } = data;
     if (!full_name || !whatsapp || !email) {
       throw new Error('Student Name, WhatsApp Number, and Gmail Address are required.');
     }
 
     const cleanEmail = email.toLowerCase().trim();
+    const normEmail = normalizeGmailClient(cleanEmail);
     const cleanName = full_name.trim();
     const cleanWa = whatsapp.trim();
     const level = learning_level || 'Book 1';
 
+    const actor = storageService.getCurrentUserSync();
+    const effectiveTeacherId =
+      actor?.role === 'teacher' ? actor.id : (assigned_teacher_id || null);
+    const effectiveRegisteredBy =
+      registered_by_id || actor?.id || null;
+
     const users = getStore<any[]>(KEYS.USERS, []);
-    if (users.some((u) => u.email?.toLowerCase().trim() === cleanEmail)) {
+    const existingIdx = users.findIndex(
+      (u) => u.email?.toLowerCase().trim() === cleanEmail || normalizeGmailClient(u.email || '') === normEmail
+    );
+    if (existingIdx >= 0) {
+      const ex = users[existingIdx];
+      if (actor?.role === 'teacher' && ex.assigned_teacher_id && ex.assigned_teacher_id !== actor.id && ex.registered_by_id !== actor.id) {
+        throw new Error(`This Gmail address "${cleanEmail}" is already registered with another teacher/portal.`);
+      }
       throw new Error(`A user with Gmail address "${cleanEmail}" already exists in the system.`);
     }
 
-    const id = `student-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const id = passedId || `student-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
 
     const newStudent = {
@@ -662,6 +776,8 @@ export const storageService = {
       role: 'student',
       status: 'active',
       learning_level: level,
+      assigned_teacher_id: effectiveTeacherId,
+      registered_by_id: effectiveRegisteredBy,
       can_approve: false,
       can_admit: false,
       created_at: now,
@@ -680,15 +796,17 @@ export const storageService = {
       whatsapp: cleanWa,
       email: cleanEmail,
       learning_level: level,
+      assigned_teacher_id: effectiveTeacherId,
+      registered_by_id: effectiveRegisteredBy,
       status: 'approved',
-      notes: 'Registered by Owner for Google Sign-In',
+      notes: actor?.role === 'teacher' ? `Registered by Teacher (${actor.full_name})` : 'Registered by Owner for Student Sign-In',
       created_at: now,
       reviewed_at: now,
     });
     setStore(KEYS.ADMISSIONS, admissions);
 
     return {
-      message: `Student "${cleanName}" registered successfully! They can now sign in using Google Sign-In with ${cleanEmail}.`,
+      message: `Student "${cleanName}" registered successfully! They can now sign in with ${cleanEmail}.`,
       student: newStudent,
     };
   },
@@ -765,31 +883,44 @@ export const storageService = {
     const submissions = getStore<any[]>(KEYS.SUBMISSIONS, []);
     const tasks = getStore<any[]>(KEYS.TASKS, []);
     const totalBook1 = tasks.filter((t) => t.book === 'Book 1' && t.status === 'active').length || 180;
+    const currentUser = storageService.getCurrentUserSync();
 
-    const students = users
-      .filter((u) => u.role === 'student')
-      .map((s) => {
-        const studentSubs = submissions.filter((sub) => sub.student_id === s.id);
-        const approved = studentSubs.filter((sub) => sub.status === 'approved').length;
-        const pending = studentSubs.filter((sub) => sub.status === 'submitted').length;
-        const rejected = studentSubs.filter((sub) => sub.status === 'needs_correction' || sub.status === 'rejected').length;
-        const progressPercent = totalBook1 > 0 ? Math.min(100, Math.round((approved / totalBook1) * 100)) : 0;
+    let studentsList = users.filter((u) => u.role === 'student' && u.id !== 'student');
+    if (currentUser?.role === 'teacher') {
+      studentsList = studentsList.filter(
+        (s) => s.assigned_teacher_id === currentUser.id || s.registered_by_id === currentUser.id
+      );
+    }
 
-        return {
-          id: s.id,
-          full_name: s.full_name,
-          email: s.email,
-          whatsapp: s.whatsapp,
-          status: s.status,
-          learning_level: s.learning_level || 'Book 1',
-          created_at: s.created_at,
-          total_submissions: studentSubs.length,
-          approved_count: approved,
-          pending_count: pending,
-          rejected_count: rejected,
-          progress_percent: progressPercent,
-        };
-      });
+    const students = studentsList.map((s) => {
+      const studentSubs = submissions.filter((sub) => isSubmissionForStudent(sub, s.id, s.email));
+      const approved = studentSubs.filter((sub) => sub.status === 'approved').length;
+      const pending = studentSubs.filter((sub) => sub.status === 'submitted').length;
+      const rejected = studentSubs.filter((sub) => sub.status === 'needs_correction' || sub.status === 'rejected').length;
+      const progressPercent = totalBook1 > 0 ? Math.min(100, Math.round((approved / totalBook1) * 100)) : 0;
+      const teacher = s.assigned_teacher_id ? users.find((u) => u.id === s.assigned_teacher_id) : null;
+
+      return {
+        id: s.id,
+        full_name: s.full_name,
+        email: s.email,
+        whatsapp: s.whatsapp,
+        status: s.status,
+        learning_level: s.learning_level || 'Book 1',
+        assigned_teacher_id: s.assigned_teacher_id || null,
+        registered_by_id: s.registered_by_id || null,
+        assigned_teacher_name: teacher?.full_name || s.assigned_teacher_name || null,
+        created_at: s.created_at,
+        total_submissions: studentSubs.length,
+        approved_count: approved,
+        pending_count: pending,
+        rejected_count: rejected,
+        progress_percent: progressPercent,
+        attendance_days: s.attendance_days || 0,
+        attendance_hours: s.attendance_hours || '0.0',
+        is_checked_in: Boolean(s.is_checked_in),
+      };
+    });
 
     return { students, totalCurriculumTasks: totalBook1 };
   },
@@ -799,38 +930,51 @@ export const storageService = {
     const token = storageService.getStoredToken();
     if (!token) throw new Error('Unauthorized');
 
-    // Token format: token-<userId>-<timestamp>
-    const match = token.match(/^token-(.+?)-\d+$/);
-    const userId = match ? match[1] : null;
-
+    const userId = decodeTokenUserId(token);
+    const cachedUser = getStore<UserProfile | null>(KEYS.CURRENT_USER, null);
     const users = getStore<any[]>(KEYS.USERS, []);
-    const user = users.find((u) => u.id === userId);
+
+    let user: any = null;
+    if (userId) {
+      const norm = normalizeGmailClient(userId);
+      user = users.find(
+        (u) =>
+          u.id === userId ||
+          u.email?.toLowerCase().trim() === userId.toLowerCase().trim() ||
+          normalizeGmailClient(u.email || '') === norm
+      );
+    }
+
+    if (!user && cachedUser) {
+      return { user: cachedUser };
+    }
 
     if (!user) throw new Error('Session expired or user not found.');
 
-    let assignedTeacherName = undefined;
-    if (user.assigned_teacher_id) {
+    let assignedTeacherName = user.assigned_teacher_name;
+    if (!assignedTeacherName && user.assigned_teacher_id) {
       const teacher = users.find((u) => u.id === user.assigned_teacher_id);
       if (teacher) assignedTeacherName = teacher.full_name;
     }
 
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        full_name: user.full_name,
-        father_name: user.father_name,
-        whatsapp: user.whatsapp,
-        role: user.role,
-        status: user.status,
-        learning_level: user.learning_level || 'Book 1',
-        assigned_teacher_id: user.assigned_teacher_id,
-        assigned_teacher_name: assignedTeacherName,
-        can_approve: Boolean(user.can_approve),
-        can_admit: Boolean(user.can_admit),
-        created_at: user.created_at,
-      },
+    const profile: UserProfile = {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      father_name: user.father_name,
+      whatsapp: user.whatsapp,
+      role: user.role,
+      status: user.status,
+      learning_level: user.learning_level || 'Book 1',
+      assigned_teacher_id: user.assigned_teacher_id,
+      registered_by_id: user.registered_by_id,
+      assigned_teacher_name: assignedTeacherName,
+      can_approve: Boolean(user.can_approve),
+      can_admit: Boolean(user.can_admit),
+      created_at: user.created_at,
     };
+    storageService.setCurrentUserSync(profile);
+    return { user: profile };
   },
 
   // Auth: Update Profile
@@ -912,11 +1056,14 @@ export const storageService = {
       tasks = tasks.filter((t) => t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q));
     }
 
+    const currentUser = storageService.getCurrentUserSync();
     // Attach submission proof for the active student
     const result: TaskItem[] = tasks.map((task) => {
       let sub = null;
       if (studentId) {
-        const match = submissions.find((s) => s.task_id === task.id && s.student_id === studentId);
+        const match = submissions.find(
+          (s) => s.task_id === task.id && isSubmissionForStudent(s, studentId, currentUser?.email)
+        );
         if (match) {
           sub = {
             id: match.id,
@@ -1048,9 +1195,11 @@ export const storageService = {
     const totalTasks = tasks.length;
 
     let studentId = '';
+    let studentEmail = '';
     try {
       const me = await storageService.getMe();
       studentId = me.user.id;
+      studentEmail = me.user.email || '';
     } catch {
       return {
         book,
@@ -1063,7 +1212,7 @@ export const storageService = {
       };
     }
 
-    const submissions = getStore<any[]>(KEYS.SUBMISSIONS, []).filter((s) => s.student_id === studentId);
+    const submissions = getStore<any[]>(KEYS.SUBMISSIONS, []).filter((s) => isSubmissionForStudent(s, studentId, studentEmail));
     const approvedCount = submissions.filter((s) => s.status === 'approved' && tasks.some((t) => t.id === s.task_id)).length;
     const pendingCount = submissions.filter((s) => s.status === 'submitted' && tasks.some((t) => t.id === s.task_id)).length;
     const needsCorrectionCount = submissions.filter((s) => (s.status === 'needs_correction' || s.status === 'rejected') && tasks.some((t) => t.id === s.task_id)).length;
@@ -1200,27 +1349,37 @@ export const storageService = {
   // Submissions: Review Queue
   async getReviewQueue(params: { status?: string; book?: string; search?: string; student_id?: string } = {}): Promise<{ submissions: any[] }> {
     const submissions = getStore<any[]>(KEYS.SUBMISSIONS, []);
-    const users = getStore<any[]>(KEYS.USERS, []);
+    const users = getStore<any[]>(KEYS.USERS, []).filter((u) => u.id !== 'student');
     const tasks = getStore<TaskItem[]>(KEYS.TASKS, []);
+    const currentUser = storageService.getCurrentUserSync();
 
     let list = submissions.map((sub) => {
-      const student = users.find((u) => u.id === sub.student_id);
+      const student =
+        users.find((u) => u.id === sub.student_id) ||
+        users.find((u) => isSubmissionForStudent(sub, u.id, u.email));
       const task = tasks.find((t) => t.id === sub.task_id);
       return {
         ...sub,
-        student_name: student?.full_name || 'Student',
-        student_email: student?.email || '',
-        assigned_teacher_id: student?.assigned_teacher_id || null,
-        task_title: task?.title || 'ACCL Task',
-        task_day: task?.day_number || 1,
-        task_category: task?.category || 'General',
-        task_book: task?.book || 'Book 1',
+        student_name: student?.full_name || sub.student_name || 'Student',
+        student_email: student?.email || sub.student_email || '',
+        assigned_teacher_id: student?.assigned_teacher_id ?? sub.assigned_teacher_id ?? null,
+        registered_by_id: student?.registered_by_id ?? sub.registered_by_id ?? null,
+        task_title: task?.title || sub.task_title || 'ACCL Task',
+        task_day: task?.day_number || sub.task_day || 1,
+        task_category: task?.category || sub.task_category || 'General',
+        task_book: task?.book || sub.task_book || 'Book 1',
       };
     });
 
-    if (params.status) list = list.filter((s) => s.status === params.status);
+    if (currentUser?.role === 'teacher') {
+      list = list.filter(
+        (s) => s.assigned_teacher_id === currentUser.id || s.registered_by_id === currentUser.id
+      );
+    }
+
+    if (params.status && params.status !== 'all') list = list.filter((s) => s.status === params.status);
     if (params.book) list = list.filter((s) => s.task_book === params.book);
-    if (params.student_id) list = list.filter((s) => s.student_id === params.student_id);
+    if (params.student_id) list = list.filter((s) => isSubmissionForStudent(s, params.student_id));
     if (params.search) {
       const q = params.search.toLowerCase();
       list = list.filter((s) => s.student_name.toLowerCase().includes(q) || s.student_email.toLowerCase().includes(q) || s.task_title.toLowerCase().includes(q));
@@ -1575,7 +1734,13 @@ export const storageService = {
 
   // Users: List Users
   async getUsers(params: { role?: string; status?: string; search?: string } = {}): Promise<{ users: UserProfile[] }> {
-    let users = getStore<any[]>(KEYS.USERS, []);
+    let users = getStore<any[]>(KEYS.USERS, []).filter((u) => u.id !== 'student');
+    const currentUser = storageService.getCurrentUserSync();
+    if (currentUser?.role === 'teacher') {
+      users = users.filter(
+        (u) => u.assigned_teacher_id === currentUser.id || u.registered_by_id === currentUser.id
+      );
+    }
     if (params.role) users = users.filter((u) => u.role === params.role);
     if (params.status) users = users.filter((u) => u.status === params.status);
     if (params.search) {
@@ -1593,6 +1758,8 @@ export const storageService = {
       status: u.status,
       learning_level: u.learning_level || 'Book 1',
       assigned_teacher_id: u.assigned_teacher_id,
+      registered_by_id: u.registered_by_id,
+      assigned_teacher_name: u.assigned_teacher_name,
       can_approve: Boolean(u.can_approve),
       can_admit: Boolean(u.can_admit),
       created_at: u.created_at,
@@ -1887,14 +2054,41 @@ export const storageService = {
   },
 
   mergeUsers(serverUsers: any[]): void {
-    if (!Array.isArray(serverUsers)) return;
-    setStore(KEYS.USERS, serverUsers);
+    if (!Array.isArray(serverUsers) || serverUsers.length === 0) return;
+    const existing = getStore<any[]>(KEYS.USERS, []);
+    const map = new Map<string, any>();
+
+    for (const u of existing) {
+      if (!u || u.id === 'student') continue;
+      const key = (u.email || u.id || '').toLowerCase().trim();
+      if (key) map.set(key, u);
+    }
+
+    for (const su of serverUsers) {
+      if (!su || su.id === 'student') continue;
+      const key = (su.email || su.id || '').toLowerCase().trim();
+      if (!key) continue;
+      const prev = map.get(key);
+      if (prev) {
+        map.set(key, {
+          ...prev,
+          ...su,
+          password: su.password || prev.password,
+          password_hash: su.password_hash || prev.password_hash,
+          salt: su.salt || prev.salt,
+        });
+      } else {
+        map.set(key, su);
+      }
+    }
+
+    setStore(KEYS.USERS, Array.from(map.values()));
   },
 
   saveUserLocally(userProfile: UserProfile, password?: string): void {
     const local = getStore<any[]>(KEYS.USERS, []);
     const cleanEmail = userProfile.email?.toLowerCase().trim();
-    const idx = local.findIndex((u) => u.email?.toLowerCase().trim() === cleanEmail);
+    const idx = local.findIndex((u) => u.email?.toLowerCase().trim() === cleanEmail || u.id === userProfile.id);
 
     const record = {
       id: userProfile.id,
@@ -1906,6 +2100,8 @@ export const storageService = {
       status: userProfile.status,
       learning_level: userProfile.learning_level,
       assigned_teacher_id: userProfile.assigned_teacher_id,
+      registered_by_id: userProfile.registered_by_id,
+      assigned_teacher_name: userProfile.assigned_teacher_name,
       can_approve: Boolean(userProfile.can_approve),
       can_admit: Boolean(userProfile.can_admit),
       created_at: userProfile.created_at || new Date().toISOString(),

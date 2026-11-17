@@ -53,6 +53,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
       await api.reviewSubmission(submission.id, {
         decision,
         feedback: feedback.trim(),
+        submissionSnapshot: submission,
       });
       onSuccess();
       onClose();

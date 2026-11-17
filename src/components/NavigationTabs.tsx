@@ -15,6 +15,7 @@ import type { SubmissionSummary } from '../types';
 
 export type NavTab =
   | 'owner_dashboard'
+  | 'teacher_dashboard'
   | 'all_tasks'
   | 'book_1'
   | 'book_2'
@@ -48,18 +49,24 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
   const { user, isOwner, isAdmin, isTeacher } = useAuth();
   const [globalPendingSubCount, setGlobalPendingSubCount] = React.useState<number>(0);
 
+  const pendingInFlightRef = React.useRef(false);
+
   React.useEffect(() => {
     if (!isOwner && !isAdmin && !isTeacher) return;
     const fetchPendingCount = async () => {
+      if (pendingInFlightRef.current) return;
+      pendingInFlightRef.current = true;
       try {
         const res = await api.getReviewQueue({ status: 'submitted' });
         setGlobalPendingSubCount(res.submissions?.length || 0);
-      } catch (err) {
+      } catch {
         // silent
+      } finally {
+        pendingInFlightRef.current = false;
       }
     };
     fetchPendingCount();
-    const interval = setInterval(fetchPendingCount, 2500);
+    const interval = setInterval(fetchPendingCount, 3500);
     return () => clearInterval(interval);
   }, [isOwner, isAdmin, isTeacher]);
 
@@ -83,6 +90,22 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
           >
             <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
             <span>Owner Dashboard</span>
+            {globalPendingSubCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-pulse">
+                {globalPendingSubCount} New
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* Teacher Dashboard Primary Tab */}
+        {user?.role === 'teacher' && (
+          <button
+            onClick={() => onTabChange('teacher_dashboard')}
+            className={btnClass('teacher_dashboard', 'bg-teal-700 text-white font-bold shadow-md')}
+          >
+            <Users className="w-3.5 h-3.5 text-teal-200" />
+            <span>Teacher Dashboard</span>
             {globalPendingSubCount > 0 && (
               <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-pulse">
                 {globalPendingSubCount} New

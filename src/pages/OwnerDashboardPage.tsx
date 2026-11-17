@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -42,6 +42,7 @@ export const OwnerDashboardPage: React.FC = () => {
   const [studentWhatsapp, setStudentWhatsapp] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
   const [learningLevel, setLearningLevel] = useState('Book 1');
+  const [assignedTeacherId, setAssignedTeacherId] = useState('');
   const [registering, setRegistering] = useState(false);
   const [regNotice, setRegNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -53,6 +54,7 @@ export const OwnerDashboardPage: React.FC = () => {
   const [teacherEmail, setTeacherEmail] = useState('');
   const [teacherWhatsapp, setTeacherWhatsapp] = useState('');
   const [teacherSubjects, setTeacherSubjects] = useState('');
+  const [teacherPassword, setTeacherPassword] = useState('');
   const [teacherCanApprove, setTeacherCanApprove] = useState(true);
   const [addingTeacher, setAddingTeacher] = useState(false);
   const [teacherNotice, setTeacherNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -81,13 +83,18 @@ export const OwnerDashboardPage: React.FC = () => {
   // General Action Notice banner
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const subInFlightRef = useRef(false);
+  const stuInFlightRef = useRef(false);
+  const teachInFlightRef = useRef(false);
+
   // Load Submissions
   const fetchSubmissions = async (silent = false) => {
+    if (silent && subInFlightRef.current) return;
+    subInFlightRef.current = true;
     if (!silent) setLoadingSubmissions(true);
     try {
       const res = await api.getReviewQueue({
         status: subFilter === 'all' ? undefined : subFilter === 'rejected' ? 'needs_correction' : subFilter,
-        search: subSearch.trim() || undefined,
       });
       const items = res.submissions || [];
 
@@ -129,12 +136,15 @@ export const OwnerDashboardPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load review queue:', err);
     } finally {
+      subInFlightRef.current = false;
       if (!silent) setLoadingSubmissions(false);
     }
   };
 
   // Load Students Overview
   const fetchStudents = async (silent = false) => {
+    if (silent && stuInFlightRef.current) return;
+    stuInFlightRef.current = true;
     if (!silent) setLoadingStudents(true);
     try {
       const res = await api.getStudentsOverview();
@@ -143,12 +153,15 @@ export const OwnerDashboardPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load students overview:', err);
     } finally {
+      stuInFlightRef.current = false;
       if (!silent) setLoadingStudents(false);
     }
   };
 
   // Load Teachers & Applications
   const fetchTeachers = async (silent = false) => {
+    if (silent && teachInFlightRef.current) return;
+    teachInFlightRef.current = true;
     if (!silent) setLoadingTeachers(true);
     try {
       const [tList, tApps] = await Promise.all([
@@ -160,11 +173,12 @@ export const OwnerDashboardPage: React.FC = () => {
     } catch (err) {
       console.warn('Failed to load teachers:', err);
     } finally {
+      teachInFlightRef.current = false;
       if (!silent) setLoadingTeachers(false);
     }
   };
 
-  // Initial and polling sync (every 2 seconds for instant real-time live review queue)
+  // Initial and polling sync (every 3.5 seconds for flicker-free live updates)
   useEffect(() => {
     fetchSubmissions();
     fetchStudents();
@@ -174,10 +188,10 @@ export const OwnerDashboardPage: React.FC = () => {
       fetchSubmissions(true);
       fetchStudents(true);
       fetchTeachers(true);
-    }, 2000);
+    }, 3500);
 
     return () => clearInterval(interval);
-  }, [subFilter, subSearch]);
+  }, [subFilter]);
 
   // Handle Register Teacher
   const handleRegisterTeacher = async (e: React.FormEvent) => {
@@ -190,16 +204,18 @@ export const OwnerDashboardPage: React.FC = () => {
         email: teacherEmail.trim().toLowerCase(),
         whatsapp: teacherWhatsapp.trim(),
         subjects: teacherSubjects.trim(),
+        password: teacherPassword.trim() || undefined,
         can_approve: teacherCanApprove,
       });
       setTeacherNotice({
         type: 'success',
-        text: res.message || `Teacher "${teacherName}" added successfully! Initial temporary password: ${res.temporaryPassword || 'teacher@accl2026'}`,
+        text: res.message || `Teacher "${teacherName}" added successfully! Initial password: ${res.temporaryPassword || teacherPassword.trim() || 'teacher@accl2026'}`,
       });
       setTeacherName('');
       setTeacherEmail('');
       setTeacherWhatsapp('');
       setTeacherSubjects('');
+      setTeacherPassword('');
       await fetchTeachers(true);
     } catch (err: any) {
       setTeacherNotice({
@@ -289,7 +305,7 @@ export const OwnerDashboardPage: React.FC = () => {
     }
   };
 
-  // Handle Register Student (Only Name, WhatsApp, Gmail)
+  // Handle Register Student (Only Name, WhatsApp, Gmail + optional Teacher)
   const handleRegisterStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegNotice(null);
@@ -301,6 +317,7 @@ export const OwnerDashboardPage: React.FC = () => {
         whatsapp: studentWhatsapp.trim(),
         email: studentEmail.trim().toLowerCase(),
         learning_level: learningLevel,
+        assigned_teacher_id: assignedTeacherId || null,
       });
 
       setRegNotice({
@@ -312,6 +329,7 @@ export const OwnerDashboardPage: React.FC = () => {
       setStudentName('');
       setStudentWhatsapp('');
       setStudentEmail('');
+      setAssignedTeacherId('');
 
       // Refresh data
       await fetchStudents(true);
@@ -326,19 +344,20 @@ export const OwnerDashboardPage: React.FC = () => {
   };
 
   // Direct 1-Click Approve Task
-  const handleApproveSubmission = async (subId: string, studentName: string) => {
-    setActionLoadingId(subId);
+  const handleApproveSubmission = async (sub: any) => {
+    setActionLoadingId(sub.id);
     setActionNotice(null);
 
     try {
-      await api.reviewSubmission(subId, {
+      await api.reviewSubmission(sub.id, {
         decision: 'approved',
         feedback: 'Approved by Farukh Businessman Wala',
+        submissionSnapshot: sub,
       });
 
       setActionNotice({
         type: 'success',
-        text: `Task for ${studentName} approved successfully! The student dashboard is updated.`,
+        text: `Task for ${sub.student_name} approved successfully! The student dashboard is updated.`,
       });
 
       await fetchSubmissions(true);
@@ -354,19 +373,20 @@ export const OwnerDashboardPage: React.FC = () => {
   };
 
   // Direct Reject Task
-  const handleRejectSubmission = async (subId: string, studentName: string) => {
-    setActionLoadingId(subId);
+  const handleRejectSubmission = async (sub: any) => {
+    setActionLoadingId(sub.id);
     setActionNotice(null);
 
     try {
-      await api.reviewSubmission(subId, {
+      await api.reviewSubmission(sub.id, {
         decision: 'needs_correction',
         feedback: rejectFeedback.trim() || 'Submission rejected by Farukh Businessman Wala. Please revise your social media proof and resubmit.',
+        submissionSnapshot: sub,
       });
 
       setActionNotice({
         type: 'success',
-        text: `Task for ${studentName} marked as Rejected / Needs Correction. Feedback sent to student.`,
+        text: `Task for ${sub.student_name} marked as Rejected / Needs Correction. Feedback sent to student.`,
       });
 
       setRejectingSubId(null);
@@ -401,16 +421,28 @@ export const OwnerDashboardPage: React.FC = () => {
     }
   };
 
-  // Filtered students by search
-  const filteredStudents = studentsOverview.filter((s) => {
-    if (!studentSearch.trim()) return true;
+  // Filtered submissions by search (client-side, flicker-free)
+  const filteredSubmissions = useMemo(() => {
+    if (!subSearch.trim()) return submissions;
+    const q = subSearch.toLowerCase();
+    return submissions.filter((sub) =>
+      sub.student_name?.toLowerCase().includes(q) ||
+      sub.student_email?.toLowerCase().includes(q) ||
+      sub.task_title?.toLowerCase().includes(q) ||
+      String(sub.task_day || '').includes(q)
+    );
+  }, [submissions, subSearch]);
+
+  // Filtered students by search (stable memoized reference)
+  const filteredStudents = useMemo(() => {
+    if (!studentSearch.trim()) return studentsOverview;
     const q = studentSearch.toLowerCase();
-    return (
+    return studentsOverview.filter((s) =>
       s.full_name?.toLowerCase().includes(q) ||
       s.email?.toLowerCase().includes(q) ||
       s.whatsapp?.toLowerCase().includes(q)
     );
-  });
+  }, [studentsOverview, studentSearch]);
 
   // Calculate quick metrics
   const totalStudents = studentsOverview.length;
@@ -643,7 +675,7 @@ export const OwnerDashboardPage: React.FC = () => {
                 </h3>
                 <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Live Sync (Every 2s)
+                  Live Sync
                 </span>
               </div>
               <p className="text-xs text-slate-500">
@@ -706,7 +738,7 @@ export const OwnerDashboardPage: React.FC = () => {
             <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mx-auto mb-2" />
             <p className="text-xs text-slate-500">Loading task submissions...</p>
           </div>
-        ) : submissions.length === 0 ? (
+        ) : filteredSubmissions.length === 0 ? (
           <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
             <CheckCircle2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
             <h4 className="text-sm font-bold text-slate-700">No submissions found</h4>
@@ -718,7 +750,7 @@ export const OwnerDashboardPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {submissions.map((sub) => {
+            {filteredSubmissions.map((sub) => {
               const isPending = sub.status === 'submitted';
               const isApproved = sub.status === 'approved';
               const isRejected = sub.status === 'needs_correction' || sub.status === 'rejected';
@@ -887,7 +919,7 @@ export const OwnerDashboardPage: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleRejectSubmission(sub.id, sub.student_name)}
+                          onClick={() => handleRejectSubmission(sub)}
                           className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-md shadow-xs cursor-pointer"
                         >
                           Confirm Rejection
@@ -901,7 +933,7 @@ export const OwnerDashboardPage: React.FC = () => {
                     <button
                       type="button"
                       disabled={actionLoadingId === sub.id}
-                      onClick={() => handleApproveSubmission(sub.id, sub.student_name)}
+                      onClick={() => handleApproveSubmission(sub)}
                       className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer ${
                         isApproved
                           ? 'bg-emerald-700 opacity-80 cursor-default'
@@ -1038,17 +1070,37 @@ export const OwnerDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
-            <div className="flex items-center gap-2 text-xs text-slate-600">
-              <span className="font-semibold">Curriculum Level:</span>
-              <select
-                value={learningLevel}
-                onChange={(e) => setLearningLevel(e.target.value)}
-                className="text-xs py-1.5 px-3 border rounded-lg bg-slate-50"
-              >
-                <option value="Book 1">Book 1 (Foundation - 180 Days)</option>
-                <option value="Book 2">Book 2 (Advanced)</option>
-              </select>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="font-semibold">Curriculum Level:</span>
+                <select
+                  value={learningLevel}
+                  onChange={(e) => setLearningLevel(e.target.value)}
+                  className="text-xs py-1.5 px-3 border rounded-lg bg-slate-50"
+                >
+                  <option value="Book 1">Book 1 (Foundation - 180 Days)</option>
+                  <option value="Book 2">Book 2 (Advanced)</option>
+                </select>
+              </div>
+
+              {teachers.length > 0 && (
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <span className="font-semibold">Assign Teacher (Optional):</span>
+                  <select
+                    value={assignedTeacherId}
+                    onChange={(e) => setAssignedTeacherId(e.target.value)}
+                    className="text-xs py-1.5 px-3 border rounded-lg bg-slate-50"
+                  >
+                    <option value="">Owner / Academy Direct</option>
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.full_name} ({t.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <button
@@ -1117,7 +1169,7 @@ export const OwnerDashboardPage: React.FC = () => {
           <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
             Add New Teacher to Academy
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                 Teacher Name <span className="text-red-500">*</span>
@@ -1134,7 +1186,7 @@ export const OwnerDashboardPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Teacher Email <span className="text-red-500">*</span>
+                Teacher Gmail <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
@@ -1169,6 +1221,19 @@ export const OwnerDashboardPage: React.FC = () => {
                 placeholder="e.g. English, Call Annie, AI"
                 value={teacherSubjects}
                 onChange={(e) => setTeacherSubjects(e.target.value)}
+                className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Portal Password (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="Default: teacher@accl2026"
+                value={teacherPassword}
+                onChange={(e) => setTeacherPassword(e.target.value)}
                 className="w-full text-xs px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-slate-50"
               />
             </div>
@@ -1354,6 +1419,11 @@ export const OwnerDashboardPage: React.FC = () => {
                       <td className="py-3.5 px-3">
                         <div className="font-bold text-slate-900">{s.full_name}</div>
                         <div className="text-[11px] text-slate-500">{s.email}</div>
+                        {s.assigned_teacher_name && (
+                          <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-semibold">
+                            Teacher: {s.assigned_teacher_name}
+                          </span>
+                        )}
                         <div className="text-[10px] text-slate-400 font-mono">
                           Registered: {new Date(s.created_at).toLocaleDateString()}
                         </div>

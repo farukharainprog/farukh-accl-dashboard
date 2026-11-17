@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
-import { queryAll, queryOne, execute, logAudit, getStudentIdAliases } from '../db.js';
+import { queryAll, queryOne, execute, logAudit, getStudentIdAliases, ensureUserInSqlite, findUserByEmailOrAlias } from '../db.js';
 import { authMiddleware, requireActive, type AuthRequest } from '../auth.js';
 import type { Submission } from '../types.js';
 
@@ -88,6 +88,9 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
     return;
   }
 
+  // Ensure authenticated user exists in SQLite before inserting submission (prevents FOREIGN KEY failures for Firestore-hydrated users)
+  ensureUserInSqlite(req.user);
+
   const studentId = req.user.id;
   const task_id = req.body.task_id || req.body.taskId;
   const fb_link = req.body.fb_link || req.body.fbLink;
@@ -105,7 +108,7 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
   }
 
   // Verify task exists
-  const task = queryOne('SELECT * FROM tasks WHERE id = ?', task_id);
+  const task = queryOne('SELECT * FROM tasks WHERE id = ?', String(task_id));
   if (!task) {
     res.status(404).json({ error: 'Task not found.' });
     return;
@@ -150,10 +153,13 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
     return;
   }
 
-  // Check if existing submission exists
+  // Check if existing submission exists across known student ID aliases
+  const studentAliases = getStudentIdAliases(studentId);
   const existing = queryOne<Submission>(`
-    SELECT * FROM submissions WHERE student_id = ? AND task_id = ? ORDER BY version DESC LIMIT 1
-  `, studentId, task_id);
+    SELECT * FROM submissions
+    WHERE student_id IN (${studentAliases.map(() => '?').join(',')}) AND task_id = ?
+    ORDER BY version DESC LIMIT 1
+  `, ...studentAliases, String(task_id));
 
   const now = new Date().toISOString();
 
@@ -281,21 +287,27 @@ submissionsRouter.get('/queue', authMiddleware, (req: AuthRequest, res: Response
            COALESCE(u.full_name, 'Student') as student_name,
            COALESCE(u.email, '') as student_email,
            u.assigned_teacher_id,
+           u.registered_by_id,
+           t2.full_name as assigned_teacher_name,
            COALESCE(t.title, 'Task') as task_title,
            COALESCE(t.day_number, 1) as task_day,
            COALESCE(t.category, 'General') as task_category,
            COALESCE(t.book, 'Book 1') as task_book
     FROM submissions s
-    LEFT JOIN users u ON s.student_id = u.id
+    LEFT JOIN users u ON u.id = CASE
+      WHEN s.student_id = 'student' THEN COALESCE((SELECT id FROM users WHERE LOWER(TRIM(email)) = 'farukharain52@gmail.com' LIMIT 1), s.student_id)
+      ELSE s.student_id
+    END
+    LEFT JOIN users t2 ON u.assigned_teacher_id = t2.id
     LEFT JOIN tasks t ON s.task_id = t.id
     WHERE 1=1
   `;
   const params: any[] = [];
 
-  // Scoping: If user is teacher, they see ONLY assigned students!
+  // Scoping: If user is teacher, they see ONLY students they registered or assigned to them!
   if (user.role === 'teacher') {
-    query += ' AND u.assigned_teacher_id = ?';
-    params.push(user.id);
+    query += ' AND (u.assigned_teacher_id = ? OR u.registered_by_id = ?)';
+    params.push(user.id, user.id);
   }
 
   if (student_id) {
@@ -333,20 +345,111 @@ submissionsRouter.post('/:id/review', authMiddleware, (req: AuthRequest, res: Re
   }
 
   const reviewer = req.user;
-  const submissionId = req.params.id;
-  const { decision, feedback } = req.body;
+  const submissionId = String(req.params.id);
+  const { decision, feedback, submissionSnapshot } = req.body;
 
   if (!['approved', 'needs_correction', 'rejected'].includes(decision)) {
     res.status(400).json({ error: "Decision must be one of: 'approved', 'needs_correction', 'rejected'." });
     return;
   }
 
-  const sub = queryOne<Submission & { student_name: string; assigned_teacher_id?: string }>(`
-    SELECT s.*, u.full_name as student_name, u.assigned_teacher_id
+  let sub = queryOne<Submission & { student_name: string; assigned_teacher_id?: string | null; registered_by_id?: string | null }>(`
+    SELECT s.*,
+           COALESCE(u.full_name, 'Student') as student_name,
+           u.assigned_teacher_id,
+           u.registered_by_id
     FROM submissions s
-    JOIN users u ON s.student_id = u.id
+    LEFT JOIN users u ON u.id = CASE
+      WHEN s.student_id = 'student' THEN COALESCE((SELECT id FROM users WHERE LOWER(TRIM(email)) = 'farukharain52@gmail.com' LIMIT 1), s.student_id)
+      ELSE s.student_id
+    END
     WHERE s.id = ?
   `, submissionId);
+
+  // If submission exists in Firestore but wasn't synced into SQLite yet, hydrate safely from snapshot
+  if (!sub && submissionSnapshot && typeof submissionSnapshot === 'object') {
+    const snapEmail = submissionSnapshot.student_email ? String(submissionSnapshot.student_email).toLowerCase().trim() : '';
+    let studentRow = snapEmail
+      ? findUserByEmailOrAlias<any>(snapEmail)
+      : queryOne<any>('SELECT * FROM users WHERE id = ?', String(submissionSnapshot.student_id || ''));
+
+    if (!studentRow && (submissionSnapshot.student_id || snapEmail)) {
+      ensureUserInSqlite({
+        id: String(submissionSnapshot.student_id || snapEmail),
+        email: snapEmail || `${submissionSnapshot.student_id}@rehanschool.edu.pk`,
+        full_name: submissionSnapshot.student_name || 'Student',
+        role: 'student',
+        status: 'active',
+        assigned_teacher_id: submissionSnapshot.assigned_teacher_id || null,
+        registered_by_id: submissionSnapshot.registered_by_id || null,
+      });
+      studentRow = queryOne<any>('SELECT * FROM users WHERE id = ?', String(submissionSnapshot.student_id || snapEmail));
+    }
+
+    if (studentRow && submissionSnapshot.task_id) {
+      // Check teacher permission before hydrating
+      if (reviewer.role === 'teacher') {
+        const ownerMatch =
+          studentRow.assigned_teacher_id === reviewer.id ||
+          studentRow.registered_by_id === reviewer.id ||
+          submissionSnapshot.assigned_teacher_id === reviewer.id ||
+          submissionSnapshot.registered_by_id === reviewer.id;
+        if (!ownerMatch) {
+          res.status(403).json({ error: 'You are only authorized to review submissions for students assigned to you.' });
+          return;
+        }
+      }
+
+      const taskRow = queryOne('SELECT id FROM tasks WHERE id = ?', String(submissionSnapshot.task_id));
+      if (taskRow) {
+        const nowSnap = new Date().toISOString();
+        execute(`
+          INSERT OR IGNORE INTO submissions (
+            id, student_id, task_id, version, status,
+            fb_link, yt_link, li_link, insta_link, other_link,
+            file_url, file_name, student_notes, submitted_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+          submissionId,
+          studentRow.id,
+          String(submissionSnapshot.task_id),
+          submissionSnapshot.version || 1,
+          submissionSnapshot.status || 'submitted',
+          submissionSnapshot.fb_link || null,
+          submissionSnapshot.yt_link || null,
+          submissionSnapshot.li_link || null,
+          submissionSnapshot.insta_link || null,
+          submissionSnapshot.other_link || null,
+          submissionSnapshot.file_url || null,
+          submissionSnapshot.file_name || null,
+          submissionSnapshot.student_notes || null,
+          submissionSnapshot.submitted_at || nowSnap,
+          submissionSnapshot.updated_at || nowSnap
+        );
+
+        sub = {
+          id: submissionId,
+          student_id: studentRow.id,
+          task_id: String(submissionSnapshot.task_id),
+          version: submissionSnapshot.version || 1,
+          status: submissionSnapshot.status || 'submitted',
+          fb_link: submissionSnapshot.fb_link || null,
+          yt_link: submissionSnapshot.yt_link || null,
+          li_link: submissionSnapshot.li_link || null,
+          insta_link: submissionSnapshot.insta_link || null,
+          other_link: submissionSnapshot.other_link || null,
+          file_url: submissionSnapshot.file_url || null,
+          file_name: submissionSnapshot.file_name || null,
+          student_notes: submissionSnapshot.student_notes || null,
+          submitted_at: submissionSnapshot.submitted_at || nowSnap,
+          updated_at: submissionSnapshot.updated_at || nowSnap,
+          student_name: studentRow.full_name || submissionSnapshot.student_name || 'Student',
+          assigned_teacher_id: studentRow.assigned_teacher_id || submissionSnapshot.assigned_teacher_id || null,
+          registered_by_id: studentRow.registered_by_id || submissionSnapshot.registered_by_id || null,
+        };
+      }
+    }
+  }
 
   if (!sub) {
     res.status(404).json({ error: 'Submission not found.' });
@@ -360,7 +463,8 @@ submissionsRouter.post('/:id/review', authMiddleware, (req: AuthRequest, res: Re
   }
 
   if (reviewer.role === 'teacher') {
-    if (sub.assigned_teacher_id !== reviewer.id) {
+    const isMyStudent = sub.assigned_teacher_id === reviewer.id || sub.registered_by_id === reviewer.id;
+    if (!isMyStudent) {
       res.status(403).json({ error: 'You are only authorized to review submissions for students assigned to you.' });
       return;
     }

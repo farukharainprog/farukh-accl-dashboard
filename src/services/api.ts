@@ -1,6 +1,7 @@
-import { storageService, getKarachiTimeString, getKarachiDateKey } from './storage';
+import { storageService, getKarachiTimeString, getKarachiDateKey, normalizeGmailClient } from './storage';
 import { firestoreService } from './firestoreService';
 import { isSubmissionForStudent } from '../utils/studentMatcher';
+import { hashPasswordWeb, verifyPasswordWeb } from '../utils/crypto';
 import type {
   UserProfile,
   TaskItem,
@@ -138,6 +139,10 @@ export const api = {
   },
 
   login: async (data: any): Promise<any> => {
+    const cleanEmail = String(data.email || '').toLowerCase().trim();
+    const cleanPassword = String(data.password || '').trim();
+    const portal = data.portal as 'owner' | 'teacher' | undefined;
+
     return syncRequest(
       async () => {
         const res = await serverRequest<any>('/auth/login', {
@@ -147,10 +152,55 @@ export const api = {
         if (res.token) setStoredToken(res.token);
         if (res.user) {
           storageService.saveUserLocally(res.user, data.password);
+          storageService.setCurrentUserSync(res.user);
         }
         return res;
       },
-      () => storageService.login(data)
+      async () => {
+        // Check Cloud Firestore first for cross-device teacher/owner authentication
+        try {
+          const fsUser = await firestoreService.getUserByEmail(cleanEmail);
+          if (fsUser) {
+            if (fsUser.status === 'suspended') {
+              throw new Error('Your account is suspended. Please contact the academy administration.');
+            }
+            if (portal === 'teacher' && fsUser.role === 'student') {
+              throw new Error('Student accounts cannot sign in to the Teacher Portal. Please use Student Sign In.');
+            }
+            if (portal === 'owner' && !['owner', 'admin'].includes(fsUser.role)) {
+              throw new Error('Only the Academy Owner can access the Owner Portal.');
+            }
+
+            let passwordOk = false;
+            if (fsUser.role === 'owner' && cleanEmail === 'farukharain962@gmail.com') {
+              passwordOk =
+                cleanPassword === '@farukh2199@' ||
+                cleanPassword === '@Farukh2199@' ||
+                cleanPassword === '@farukh2199' ||
+                cleanPassword === '@Farukh2199';
+            }
+            if (!passwordOk && fsUser.password_hash && fsUser.salt) {
+              passwordOk = await verifyPasswordWeb(cleanPassword, fsUser.salt, fsUser.password_hash);
+            }
+            if (!passwordOk && fsUser.role === 'teacher' && !fsUser.password_hash && cleanPassword === 'teacher@accl2026') {
+              passwordOk = true;
+            }
+
+            if (passwordOk) {
+              const token = `fs_token_${fsUser.id || cleanEmail}_${Date.now()}`;
+              setStoredToken(token);
+              storageService.saveUserLocally(fsUser, cleanPassword);
+              storageService.setCurrentUserSync(fsUser);
+              return { message: 'Login successful.', token, user: fsUser, isPending: false };
+            }
+          }
+        } catch (fsErr: any) {
+          if (fsErr?.message && (fsErr.message.includes('Teacher Portal') || fsErr.message.includes('Owner Portal') || fsErr.message.includes('suspended'))) {
+            throw fsErr;
+          }
+        }
+        return storageService.login(data);
+      }
     );
   },
 
@@ -161,7 +211,7 @@ export const api = {
     let fsUser: any = null;
     try {
       fsUser = await firestoreService.getUserByEmail(cleanEmail);
-      if (fsUser) {
+      if (fsUser && fsUser.role === 'student') {
         storageService.saveUserLocally(fsUser, 'google-oauth-session');
       }
     } catch (e) {
@@ -177,14 +227,26 @@ export const api = {
         if (res.token) setStoredToken(res.token);
         if (res.user) {
           storageService.saveUserLocally(res.user, 'google-oauth-session');
+          storageService.setCurrentUserSync(res.user);
         }
         return res;
       },
       async () => {
         if (fsUser) {
+          if (fsUser.role === 'owner' || fsUser.role === 'admin' || fsUser.role === 'teacher') {
+            throw new Error(
+              fsUser.role === 'teacher'
+                ? 'Teachers must sign in via Teacher Sign In with their Gmail and password.'
+                : 'Owner must sign in via Owner Sign In with Gmail and password.'
+            );
+          }
+          if (fsUser.status === 'suspended') {
+            throw new Error('Your student account is suspended. Please contact the academy administration.');
+          }
           const token = `fs_token_${fsUser.id || cleanEmail}_${Date.now()}`;
           setStoredToken(token);
           storageService.saveUserLocally(fsUser, 'google-oauth-session');
+          storageService.setCurrentUserSync(fsUser);
           return { success: true, token, user: fsUser };
         }
         return storageService.googleLogin({ ...data, email: cleanEmail });
@@ -194,7 +256,14 @@ export const api = {
 
   getMe: async (): Promise<{ user: UserProfile }> => {
     return syncRequest(
-      () => serverRequest<{ user: UserProfile }>('/auth/me'),
+      async () => {
+        const res = await serverRequest<{ user: UserProfile }>('/auth/me');
+        if (res?.user) {
+          storageService.saveUserLocally(res.user);
+          storageService.setCurrentUserSync(res.user);
+        }
+        return res;
+      },
       () => storageService.getMe()
     );
   },
@@ -352,18 +421,29 @@ export const api = {
   },
 
   submitTask: async (data: any): Promise<any> => {
-    const currentUser = storageService.getCurrentUserSync();
+    let currentUser = storageService.getCurrentUserSync();
+    if (!currentUser) {
+      try {
+        const meRes = await storageService.getMe();
+        currentUser = meRes.user;
+      } catch {
+        currentUser = null;
+      }
+    }
+
     const studentId = currentUser?.id ? String(currentUser.id) : (currentUser?.email || 'student');
     const studentName = currentUser?.full_name || 'Student';
     const studentEmail = (currentUser?.email || '').toLowerCase().trim();
 
-    // 1. Immediately write to Cloud Firestore so the Owner Dashboard receives it globally
+    // 1. Immediately write to Cloud Firestore so the Owner & Teacher Dashboards receive it globally
     let firestoreSubId = '';
     try {
       firestoreSubId = await firestoreService.saveSubmission({
         student_id: studentId,
         student_name: studentName,
         student_email: studentEmail,
+        assigned_teacher_id: currentUser?.assigned_teacher_id || null,
+        registered_by_id: currentUser?.registered_by_id || null,
         task_id: data.task_id,
         task_title: data.task_title || `Day ${data.task_day || 1}`,
         task_day: data.task_day || 1,
@@ -380,7 +460,10 @@ export const api = {
         student_notes: data.student_notes || null,
         submitted_at: new Date().toISOString(),
       });
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('already Approved')) {
+        throw err;
+      }
       console.warn('[Firestore] Error saving submission:', err);
     }
 
@@ -390,6 +473,9 @@ export const api = {
           method: 'POST',
           body: JSON.stringify(data),
         });
+        try {
+          await storageService.submitTask(data);
+        } catch {}
         return {
           ...res,
           submissionId: res?.submissionId || firestoreSubId,
@@ -397,29 +483,46 @@ export const api = {
         };
       },
       async () => {
-        const res = await storageService.submitTask(data);
-        return {
-          ...res,
-          submissionId: firestoreSubId || res?.submissionId,
-          status: 'submitted',
-        };
+        try {
+          const res = await storageService.submitTask(data);
+          return {
+            ...res,
+            submissionId: firestoreSubId || res?.submissionId,
+            status: 'submitted',
+          };
+        } catch (localErr) {
+          if (firestoreSubId) {
+            return {
+              message: 'Task submitted successfully! Your submission is now in the review queue.',
+              submissionId: firestoreSubId,
+              version: 1,
+              status: 'submitted',
+            };
+          }
+          throw localErr;
+        }
       }
     );
   },
 
   getReviewQueue: async (params?: { status?: string; book?: string; search?: string; student_id?: string }): Promise<any> => {
+    const currentUser = storageService.getCurrentUserSync();
     const qs = new URLSearchParams();
-    if (params?.status) qs.set('status', params.status);
+    if (params?.status && params.status !== 'all') qs.set('status', params.status);
     if (params?.book) qs.set('book', params.book);
     if (params?.search) qs.set('search', params.search);
     if (params?.student_id) qs.set('student_id', params.student_id);
 
     const queryStr = qs.toString() ? `?${qs.toString()}` : '';
 
-    // Fetch live submissions from Cloud Firestore
+    // Fetch live submissions & users from Cloud Firestore for enrichment & teacher scoping
     let fsSubs: any[] = [];
+    let fsStudents: any[] = [];
     try {
-      fsSubs = await firestoreService.getSubmissions(params);
+      [fsSubs, fsStudents] = await Promise.all([
+        firestoreService.getSubmissions(params),
+        firestoreService.getAllUsers('student'),
+      ]);
     } catch (e) {
       console.warn('[Firestore] review queue fetch error:', e);
     }
@@ -433,12 +536,47 @@ export const api = {
       for (const fs of fsSubs) {
         const key = fs.id ? String(fs.id) : `${fs.student_id}_${fs.task_id}`;
         if (mergedMap.has(key)) {
-          mergedMap.set(key, { ...mergedMap.get(key), ...fs });
+          const existing = mergedMap.get(key);
+          mergedMap.set(key, {
+            ...existing,
+            ...fs,
+            student_name:
+              existing.student_name && existing.student_name !== 'Student'
+                ? existing.student_name
+                : (fs.student_name || existing.student_name || 'Student'),
+            student_email: existing.student_email || fs.student_email || '',
+            assigned_teacher_id: existing.assigned_teacher_id ?? fs.assigned_teacher_id ?? null,
+            registered_by_id: existing.registered_by_id ?? fs.registered_by_id ?? null,
+          });
         } else {
           mergedMap.set(key, fs);
         }
       }
-      let list = Array.from(mergedMap.values());
+
+      let list = Array.from(mergedMap.values()).map((item) => {
+        const matchedStudent = fsStudents.find((u) => isSubmissionForStudent(item, u.id, u.email));
+        const resolvedName =
+          item.student_name && item.student_name !== 'Student'
+            ? item.student_name
+            : (matchedStudent?.full_name || item.student_name || 'Student');
+        return {
+          ...item,
+          student_name: resolvedName,
+          student_email: item.student_email || matchedStudent?.email || '',
+          assigned_teacher_id: item.assigned_teacher_id ?? matchedStudent?.assigned_teacher_id ?? null,
+          registered_by_id: item.registered_by_id ?? matchedStudent?.registered_by_id ?? null,
+        };
+      });
+
+      // Strict Teacher Scoping: Teachers see ONLY submissions from students they registered or are assigned to
+      if (currentUser?.role === 'teacher') {
+        list = list.filter(
+          (item) =>
+            item.assigned_teacher_id === currentUser.id ||
+            item.registered_by_id === currentUser.id
+        );
+      }
+
       if (params?.status && params.status !== 'all') {
         list = list.filter((item) => item.status === params.status);
       }
@@ -466,12 +604,20 @@ export const api = {
     );
   },
 
-  reviewSubmission: async (id: string, data: { decision: string; feedback?: string }): Promise<any> => {
+  reviewSubmission: async (id: string, data: { decision: string; feedback?: string; submissionSnapshot?: any }): Promise<any> => {
     const normalizedDecision = data.decision === 'approve' || data.decision === 'approved' ? 'approved' : 'needs_correction';
+    const currentUser = storageService.getCurrentUserSync();
 
-    // 1. Instantly update Cloud Firestore so student device sees approval
+    // 1. Instantly update Cloud Firestore so student device sees approval/feedback
     try {
-      await firestoreService.reviewSubmission(id, normalizedDecision, data.feedback);
+      await firestoreService.reviewSubmission(
+        id,
+        normalizedDecision,
+        data.feedback,
+        currentUser?.full_name,
+        currentUser?.id,
+        data.submissionSnapshot
+      );
     } catch (e) {
       console.warn('[Firestore] review submission update failed:', e);
     }
@@ -691,11 +837,30 @@ export const api = {
 
   approveTeacherApplication: async (id: string, data: any): Promise<any> => {
     return syncRequest(
-      () => serverRequest(`/admissions/teachers/${encodeURIComponent(id)}/approve`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-      () => storageService.approveTeacherApplication(id, data)
+      async () => {
+        const res = await serverRequest<any>(`/admissions/teachers/${encodeURIComponent(id)}/approve`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        try {
+          const appsRes = await serverRequest<any>('/admissions/teachers');
+          const approvedApp = appsRes?.applications?.find((a: any) => a.id === id);
+          if (approvedApp?.email) {
+            const tempPass = res?.temporaryPassword || data?.initial_password || 'teacher@accl2026';
+            const { salt, hash } = await hashPasswordWeb(tempPass);
+            const usersRes = await serverRequest<any>('/users?role=teacher');
+            const teacherObj = usersRes?.users?.find((u: any) => u.email?.toLowerCase() === approvedApp.email.toLowerCase());
+            if (teacherObj) {
+              await firestoreService.saveUser({ ...teacherObj, password_hash: hash, salt });
+            }
+          }
+        } catch {}
+        return res;
+      },
+      async () => {
+        const res = await storageService.approveTeacherApplication(id, data);
+        return res;
+      }
     );
   },
 
@@ -708,6 +873,7 @@ export const api = {
 
   // Users Management
   getUsers: async (params?: { role?: string; status?: string; search?: string }): Promise<any> => {
+    const currentUser = storageService.getCurrentUserSync();
     const qs = new URLSearchParams();
     if (params?.role) qs.set('role', params.role);
     if (params?.status) qs.set('status', params.status);
@@ -725,20 +891,36 @@ export const api = {
     const mergeWithFirestore = (baseUsers: any[]): any[] => {
       const map = new Map<string, any>();
       for (const u of baseUsers) {
-        const key = (u.email || u.id || '').toLowerCase().trim();
+        if (!u || u.id === 'student') continue;
+        const key = normalizeGmailClient(u.email || u.id || '');
         if (key) map.set(key, u);
       }
       for (const fs of fsUsers) {
-        const key = (fs.email || fs.id || '').toLowerCase().trim();
+        if (!fs || fs.id === 'student') continue;
+        const key = normalizeGmailClient(fs.email || fs.id || '');
         if (key) {
           if (!map.has(key)) {
             map.set(key, fs);
           } else {
-            map.set(key, { ...map.get(key), ...fs });
+            const existing = map.get(key);
+            map.set(key, {
+              ...existing,
+              ...fs,
+              full_name: fs.full_name && fs.full_name !== 'Student' ? fs.full_name : existing.full_name,
+              whatsapp: fs.whatsapp || existing.whatsapp,
+              assigned_teacher_id: existing.assigned_teacher_id ?? fs.assigned_teacher_id ?? null,
+              registered_by_id: existing.registered_by_id ?? fs.registered_by_id ?? null,
+              assigned_teacher_name: existing.assigned_teacher_name || fs.assigned_teacher_name || null,
+            });
           }
         }
       }
       let list = Array.from(map.values());
+      if (currentUser?.role === 'teacher') {
+        list = list.filter(
+          (u) => u.assigned_teacher_id === currentUser.id || u.registered_by_id === currentUser.id
+        );
+      }
       if (params?.status) {
         list = list.filter((u) => u.status === params.status);
       }
@@ -768,14 +950,21 @@ export const api = {
     );
   },
 
-  registerStudentByOwner: async (data: { full_name: string; whatsapp: string; email: string; learning_level?: string }): Promise<any> => {
+  registerStudentByOwner: async (data: { full_name: string; whatsapp: string; email: string; learning_level?: string; assigned_teacher_id?: string | null }): Promise<any> => {
     const cleanEmail = (data.email || '').toLowerCase().trim();
-    const studentUser: UserProfile = {
+    const actor = storageService.getCurrentUserSync();
+    const effectiveTeacherId =
+      actor?.role === 'teacher' ? actor.id : (data.assigned_teacher_id || null);
+    const effectiveRegisteredBy = actor?.id || null;
+
+    const fallbackStudent: UserProfile = {
       id: `std_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       email: cleanEmail,
       full_name: data.full_name,
       whatsapp: data.whatsapp || '',
       learning_level: data.learning_level || 'Book 1',
+      assigned_teacher_id: effectiveTeacherId,
+      registered_by_id: effectiveRegisteredBy,
       role: 'student',
       status: 'active',
       can_approve: false,
@@ -783,32 +972,51 @@ export const api = {
       created_at: new Date().toISOString(),
     };
 
-    // 1. Immediately persist to Cloud Firestore
-    try {
-      await firestoreService.saveUser(studentUser);
-    } catch (e) {
-      console.warn('[Firestore] Error saving student:', e);
-    }
-
     return syncRequest(
       async () => {
         const res = await serverRequest<any>('/users/register-student', {
           method: 'POST',
-          body: JSON.stringify({ ...data, email: cleanEmail }),
+          body: JSON.stringify({
+            ...data,
+            email: cleanEmail,
+            assigned_teacher_id: effectiveTeacherId,
+          }),
         });
-        if (res.student) {
-          storageService.saveUserLocally(res.student, 'google-oauth-session');
+        const savedStudent = res.student || fallbackStudent;
+        try {
+          await firestoreService.saveUser({
+            ...savedStudent,
+            assigned_teacher_id: savedStudent.assigned_teacher_id ?? effectiveTeacherId,
+            registered_by_id: savedStudent.registered_by_id ?? effectiveRegisteredBy,
+          });
+        } catch (e) {
+          console.warn('[Firestore] Error syncing registered student:', e);
         }
+        storageService.saveUserLocally(savedStudent, 'google-oauth-session');
         return res;
       },
-      () => {
-        storageService.saveUserLocally(studentUser, 'google-oauth-session');
-        return Promise.resolve({ success: true, student: studentUser });
+      async () => {
+        try {
+          await firestoreService.saveUser(fallbackStudent);
+        } catch (e) {
+          console.warn('[Firestore] Error saving student:', e);
+        }
+        const localRes = await storageService.registerStudentByOwner({
+          ...data,
+          id: fallbackStudent.id,
+          email: cleanEmail,
+          assigned_teacher_id: effectiveTeacherId,
+          registered_by_id: effectiveRegisteredBy,
+        });
+        return { ...localRes, success: true, student: localRes.student || fallbackStudent };
       }
     );
   },
 
   registerTeacherByOwner: async (data: { full_name: string; email: string; whatsapp?: string; subjects?: string; password?: string; can_approve?: boolean }): Promise<any> => {
+    const rawPassword = data.password?.trim() || 'teacher@accl2026';
+    const { salt, hash } = await hashPasswordWeb(rawPassword);
+
     return syncRequest(
       async () => {
         const res = await serverRequest<any>('/users/register-teacher', {
@@ -816,11 +1024,34 @@ export const api = {
           body: JSON.stringify(data),
         });
         if (res.teacher) {
-          storageService.saveUserLocally(res.teacher, res.temporaryPassword || 'teacher@accl2026');
+          const finalPass = res.temporaryPassword || rawPassword;
+          const creds = finalPass === rawPassword ? { salt, hash } : await hashPasswordWeb(finalPass);
+          try {
+            await firestoreService.saveUser({
+              ...res.teacher,
+              password_hash: creds.hash,
+              salt: creds.salt,
+            });
+          } catch (e) {
+            console.warn('[Firestore] Error saving teacher:', e);
+          }
+          storageService.saveUserLocally(res.teacher, finalPass);
         }
         return res;
       },
-      () => storageService.registerTeacherByOwner(data)
+      async () => {
+        const localRes = await storageService.registerTeacherByOwner(data);
+        if (localRes.teacher) {
+          try {
+            await firestoreService.saveUser({
+              ...localRes.teacher,
+              password_hash: hash,
+              salt,
+            });
+          } catch {}
+        }
+        return localRes;
+      }
     );
   },
 
@@ -857,12 +1088,20 @@ export const api = {
   },
 
   getStudentsOverview: async (): Promise<{ students: any[]; totalCurriculumTasks: number }> => {
+    const currentUser = storageService.getCurrentUserSync();
+
     // Fetch students and submissions from Cloud Firestore
     let fsStudents: any[] = [];
     let fsSubmissions: any[] = [];
+    let fsTeachers: any[] = [];
     try {
-      fsStudents = await firestoreService.getAllUsers('student');
-      fsSubmissions = await firestoreService.getSubmissions();
+      const [allFsUsers, allFsSubs] = await Promise.all([
+        firestoreService.getAllUsers(),
+        firestoreService.getSubmissions(),
+      ]);
+      fsStudents = allFsUsers.filter((u) => u.role === 'student' && u.id !== 'student');
+      fsTeachers = allFsUsers.filter((u) => ['teacher', 'owner', 'admin'].includes(u.role));
+      fsSubmissions = allFsSubs;
     } catch (e) {
       console.warn('[Firestore] Failed to get students overview data:', e);
     }
@@ -870,13 +1109,47 @@ export const api = {
     const mergeStudents = (serverStudents: any[] = []): any[] => {
       const studentMap = new Map<string, any>();
 
+      const toSnakeStudent = (s: any) => {
+        const approvedCount = Number(s.approved_count ?? s.approvedCount ?? 0);
+        const pendingCount = Number(s.pending_count ?? s.pendingCount ?? 0);
+        const rejectedCount = Number(s.rejected_count ?? s.rejectedCount ?? s.needsCorrectionCount ?? 0);
+        const totalSubs = Number(s.total_submissions ?? s.totalSubmissions ?? (approvedCount + pendingCount + rejectedCount));
+        const progressPercent = Number(s.progress_percent ?? s.progressPercent ?? Math.min(100, Math.round((approvedCount / 180) * 100)));
+        const teacherMatch = s.assigned_teacher_id ? fsTeachers.find((t) => t.id === s.assigned_teacher_id) : null;
+
+        return {
+          ...s,
+          id: s.id,
+          full_name: s.full_name || 'Student',
+          email: s.email || '',
+          whatsapp: s.whatsapp || '',
+          role: 'student',
+          status: s.status || 'active',
+          learning_level: s.learning_level || 'Book 1',
+          assigned_teacher_id: s.assigned_teacher_id ?? null,
+          registered_by_id: s.registered_by_id ?? null,
+          assigned_teacher_name: s.assigned_teacher_name || teacherMatch?.full_name || null,
+          created_at: s.created_at || s.lastActive || new Date().toISOString(),
+          approved_count: approvedCount,
+          pending_count: pendingCount,
+          rejected_count: rejectedCount,
+          total_submissions: totalSubs,
+          progress_percent: progressPercent,
+          attendance_days: Number(s.attendance_days ?? 0),
+          attendance_hours: String(s.attendance_hours ?? '0.0'),
+          is_checked_in: Boolean(s.is_checked_in),
+        };
+      };
+
       for (const s of serverStudents) {
-        const key = (s.email || s.id || '').toLowerCase().trim();
-        if (key) studentMap.set(key, s);
+        if (!s || s.id === 'student') continue;
+        const key = normalizeGmailClient(s.email || s.id || '');
+        if (key) studentMap.set(key, toSnakeStudent(s));
       }
 
       for (const fs of fsStudents) {
-        const key = (fs.email || fs.id || '').toLowerCase().trim();
+        if (!fs || fs.id === 'student') continue;
+        const key = normalizeGmailClient(fs.email || fs.id || '');
         if (!key) continue;
 
         const studentSubs = fsSubmissions.filter((sub) =>
@@ -884,40 +1157,59 @@ export const api = {
         );
         const approvedCount = studentSubs.filter((s) => s.status === 'approved').length;
         const pendingCount = studentSubs.filter((s) => s.status === 'submitted').length;
-        const needsCorrectionCount = studentSubs.filter((s) => s.status === 'needs_correction' || s.status === 'rejected').length;
+        const rejectedCount = studentSubs.filter((s) => s.status === 'needs_correction' || s.status === 'rejected').length;
         const lastActive = studentSubs[0]?.updated_at || studentSubs[0]?.submitted_at || fs.created_at;
 
         if (studentMap.has(key)) {
           const existing = studentMap.get(key);
-          studentMap.set(key, {
+          const mergedApproved = Math.max(existing.approved_count || 0, approvedCount);
+          const mergedPending = Math.max(existing.pending_count || 0, pendingCount);
+          const mergedRejected = Math.max(existing.rejected_count || 0, rejectedCount);
+          const mergedTotal = Math.max(existing.total_submissions || 0, studentSubs.length);
+
+          studentMap.set(key, toSnakeStudent({
             ...existing,
-            full_name: fs.full_name || existing.full_name,
+            full_name: fs.full_name && fs.full_name !== 'Student' ? fs.full_name : existing.full_name,
             whatsapp: fs.whatsapp || existing.whatsapp,
-            approvedCount: Math.max(existing.approvedCount || 0, approvedCount),
-            pendingCount: Math.max(existing.pendingCount || 0, pendingCount),
-            totalSubmissions: Math.max(existing.totalSubmissions || 0, studentSubs.length),
-            lastActive: lastActive || existing.lastActive,
-          });
+            status: fs.status || existing.status,
+            assigned_teacher_id: existing.assigned_teacher_id ?? fs.assigned_teacher_id ?? null,
+            registered_by_id: existing.registered_by_id ?? fs.registered_by_id ?? null,
+            created_at: existing.created_at || fs.created_at,
+            approved_count: mergedApproved,
+            pending_count: mergedPending,
+            rejected_count: mergedRejected,
+            total_submissions: mergedTotal,
+            progress_percent: Math.max(existing.progress_percent || 0, Math.min(100, Math.round((mergedApproved / 180) * 100))),
+            last_active: lastActive || existing.last_active,
+          }));
         } else {
-          studentMap.set(key, {
+          studentMap.set(key, toSnakeStudent({
             id: fs.id,
             full_name: fs.full_name || 'Student',
             email: fs.email,
             whatsapp: fs.whatsapp || '',
             role: 'student',
-            status: 'active',
+            status: fs.status || 'active',
             learning_level: fs.learning_level || 'Book 1',
-            approvedCount,
-            pendingCount,
-            needsCorrectionCount,
-            totalSubmissions: studentSubs.length,
-            progressPercent: Math.min(100, Math.round((approvedCount / 180) * 100)),
-            lastActive,
-          });
+            assigned_teacher_id: fs.assigned_teacher_id ?? null,
+            registered_by_id: fs.registered_by_id ?? null,
+            created_at: fs.created_at || lastActive || new Date().toISOString(),
+            approved_count: approvedCount,
+            pending_count: pendingCount,
+            rejected_count: rejectedCount,
+            total_submissions: studentSubs.length,
+            progress_percent: Math.min(100, Math.round((approvedCount / 180) * 100)),
+          }));
         }
       }
 
-      return Array.from(studentMap.values());
+      let result = Array.from(studentMap.values());
+      if (currentUser?.role === 'teacher') {
+        result = result.filter(
+          (s) => s.assigned_teacher_id === currentUser.id || s.registered_by_id === currentUser.id
+        );
+      }
+      return result;
     };
 
     return syncRequest(
@@ -955,19 +1247,56 @@ export const api = {
   },
 
   getTeachersList: async (): Promise<any> => {
+    let fsTeachers: any[] = [];
+    try {
+      const all = await firestoreService.getAllUsers();
+      fsTeachers = all.filter((u) => ['teacher', 'owner', 'admin'].includes(u.role) && u.status === 'active');
+    } catch {}
+
     return syncRequest(
-      () => serverRequest('/users/teachers'),
+      async () => {
+        const res = await serverRequest<{ teachers: any[] }>('/users/teachers');
+        const map = new Map<string, any>();
+        for (const t of res?.teachers || []) map.set(t.id, t);
+        for (const ft of fsTeachers) {
+          if (!map.has(ft.id)) map.set(ft.id, ft);
+        }
+        return { teachers: Array.from(map.values()) };
+      },
       () => storageService.getTeachersList()
     );
   },
 
   updateUser: async (id: string, data: any): Promise<any> => {
+    let extraHash: { password_hash?: string; salt?: string } = {};
+    if (data.password && String(data.password).trim().length >= 6) {
+      const { salt, hash } = await hashPasswordWeb(String(data.password).trim());
+      extraHash = { password_hash: hash, salt };
+    }
+
     return syncRequest(
-      () => serverRequest(`/users/${encodeURIComponent(id)}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-      () => storageService.updateUser(id, data)
+      async () => {
+        const res = await serverRequest(`/users/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        });
+        try {
+          const allFs = await firestoreService.getAllUsers();
+          const existing = allFs.find((u) => u.id === id);
+          if (existing) {
+            await firestoreService.saveUser({
+              ...existing,
+              ...data,
+              ...extraHash,
+            });
+          }
+        } catch {}
+        return res;
+      },
+      async () => {
+        const res = await storageService.updateUser(id, data);
+        return res;
+      }
     );
   },
 

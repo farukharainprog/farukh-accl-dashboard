@@ -1,6 +1,7 @@
 import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
-import { queryOne, execute, logAudit, getSetting, ensureDatabaseInitialized } from '../db.js';
+import { queryOne, execute, logAudit, getSetting, ensureDatabaseInitialized, findUserByEmailOrAlias, ensureUserInSqlite } from '../db.js';
+import { fetchFirestoreUserByEmail } from '../firestoreClient.js';
 import { hashPassword, verifyPassword, createToken, authMiddleware, type AuthRequest } from '../auth.js';
 import type { User, StudentAdmission } from '../types.js';
 
@@ -190,11 +191,11 @@ authRouter.post('/register', (req, res: Response) => {
   }
 });
 
-// Login with Email & Password
-authRouter.post('/login', (req, res: Response) => {
+// Login with Email & Password (Owner & Teacher)
+authRouter.post('/login', async (req, res: Response) => {
   try {
     ensureDatabaseInitialized();
-    const { email, password } = req.body || {};
+    const { email, password, portal } = req.body || {};
 
     if (!email || !password) {
       res.status(400).json({ error: 'Email ID and password are required.' });
@@ -204,12 +205,16 @@ authRouter.post('/login', (req, res: Response) => {
     const cleanEmail = String(email).toLowerCase().trim();
     const cleanPassword = String(password).trim();
 
-    let user = queryOne<User & { assigned_teacher_name?: string }>(`
-      SELECT u.*, t.full_name as assigned_teacher_name
-      FROM users u
-      LEFT JOIN users t ON u.assigned_teacher_id = t.id
-      WHERE LOWER(TRIM(u.email)) = LOWER(TRIM(?))
-    `, cleanEmail);
+    let user = findUserByEmailOrAlias<User & { assigned_teacher_name?: string }>(cleanEmail);
+
+    // If user not in SQLite yet, check Cloud Firestore (handles cross-device & fresh containers)
+    if (!user && cleanEmail !== 'farukharain962@gmail.com') {
+      const fsUser = await fetchFirestoreUserByEmail(cleanEmail);
+      if (fsUser) {
+        ensureUserInSqlite(fsUser);
+        user = findUserByEmailOrAlias<User & { assigned_teacher_name?: string }>(fsUser.email || cleanEmail);
+      }
+    }
 
     // If owner user does not exist in SQLite table yet, provision automatically
     if (!user && cleanEmail === 'farukharain962@gmail.com') {
@@ -220,7 +225,7 @@ authRouter.post('/login', (req, res: Response) => {
         INSERT OR REPLACE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
         VALUES (?, ?, ?, ?, 'FARUKH BUSINESSMAN WALA', 'Haji Ghulam', '0345 3967083', 'owner', 'active', 'Book 1', 1, 1, ?, ?)
       `, ownerId, cleanEmail, hash, salt, now, now);
-      user = queryOne<User>('SELECT * FROM users WHERE email = ?', cleanEmail);
+      user = findUserByEmailOrAlias<User>(cleanEmail);
     }
 
     // If user not in users table yet, check student_admissions
@@ -232,8 +237,8 @@ authRouter.post('/login', (req, res: Response) => {
         const newUserId = crypto.randomUUID();
         const now = new Date().toISOString();
         execute(`
-          INSERT INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, assigned_teacher_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 'active', ?, ?, ?, ?)
+          INSERT INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, assigned_teacher_id, registered_by_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 'active', ?, ?, ?, ?, ?)
         `,
           newUserId,
           cleanEmail,
@@ -244,6 +249,7 @@ authRouter.post('/login', (req, res: Response) => {
           admission.whatsapp,
           admission.learning_level || 'Book 1',
           admission.assigned_teacher_id || null,
+          admission.registered_by_id || null,
           now,
           now
         );
@@ -269,7 +275,9 @@ authRouter.post('/login', (req, res: Response) => {
 
     if (!user) {
       res.status(401).json({
-        error: 'Incorrect Email ID. This email is not registered in the portal. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083) to register your student admission.',
+        error: portal === 'teacher'
+          ? 'No Teacher account found with this Gmail address. Please ask Farukh Businessman Wala (Owner) to add your Teacher account first.'
+          : 'Incorrect Email ID. This email is not registered in the portal.',
         isUnregistered: true,
       });
       return;
@@ -282,13 +290,13 @@ authRouter.post('/login', (req, res: Response) => {
     }
 
     if (user.status === 'suspended') {
-      res.status(403).json({ error: 'Your student account is suspended. Please contact the academy administration.' });
+      res.status(403).json({ error: 'Your account is suspended. Please contact the academy administration.' });
       return;
     }
 
     if (user.status === 'pending') {
       res.status(403).json({
-        error: 'Your admission is currently under review by Farukh Businessman Wala. Please allow up to 12 hours for owner approval. Once approved, you can sign in to view your tasks.',
+        error: 'Your account is currently under review by Farukh Businessman Wala.',
         isPending: true,
       });
       return;
@@ -296,14 +304,27 @@ authRouter.post('/login', (req, res: Response) => {
 
     if (user.status === 'rejected') {
       res.status(403).json({
-        error: 'Your admission was not approved. Please contact Farukh Businessman Wala on WhatsApp.',
+        error: 'Your registration was not approved. Please contact Farukh Businessman Wala on WhatsApp.',
+      });
+      return;
+    }
+
+    if (portal === 'teacher' && user.role === 'student') {
+      res.status(403).json({
+        error: 'This Gmail is registered as a Student account. Please use STUDENT SIGN IN.',
+      });
+      return;
+    }
+
+    if (portal === 'owner' && user.role !== 'owner') {
+      res.status(403).json({
+        error: 'Only the authorized Academy Owner (farukharain962@gmail.com) can sign in to the Owner portal.',
       });
       return;
     }
 
     // Password verification logic
     if (user.role === 'owner') {
-      // Owner login check - accepts @farukh2199@, @Farukh2199@, @farukh2199, @Farukh2199, acclOwner@2026 or verified hash
       const isOwnerValid =
         cleanPassword === '@farukh2199@' ||
         cleanPassword === '@Farukh2199@' ||
@@ -317,22 +338,30 @@ authRouter.post('/login', (req, res: Response) => {
         return;
       }
 
-      // Update password hash if owner logged in with new password
       if (cleanPassword === '@farukh2199@' || cleanPassword === '@Farukh2199@') {
         const { salt, hash } = hashPassword(cleanPassword);
         execute('UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?', hash, salt, new Date().toISOString(), user.id);
       }
-    } else {
-      // Student / Teacher login check
+    } else if (user.role === 'teacher' || user.role === 'admin') {
       let isValid = verifyPassword(cleanPassword, user.salt, user.password_hash);
-
-      // Check if user still has the default initial password from owner registration
+      // If teacher record came without a custom password hash, allow initial default password 'teacher@accl2026'
+      if (!isValid && (!user.password_hash || user.password_hash === 'google_verified') && cleanPassword === 'teacher@accl2026') {
+        const { salt, hash } = hashPassword(cleanPassword);
+        execute('UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?', hash, salt, new Date().toISOString(), user.id);
+        isValid = true;
+      }
+      if (!isValid) {
+        res.status(401).json({ error: 'Invalid Gmail or password for Teacher account.' });
+        return;
+      }
+    } else {
+      // Student login with password (legacy fallback)
+      let isValid = verifyPassword(cleanPassword, user.salt, user.password_hash);
       const isDefaultInitialPass =
         verifyPassword('acclStudent@2026', user.salt, user.password_hash) ||
         verifyPassword('student123', user.salt, user.password_hash) ||
         user.password_hash === 'temporary_owner_registered';
 
-      // Support first-time password setup, master overrides, or default password
       if (!isValid && (
         (isDefaultInitialPass && cleanPassword.length >= 3) ||
         cleanPassword === '@Farukh2199' ||
@@ -340,7 +369,6 @@ authRouter.post('/login', (req, res: Response) => {
         cleanPassword === 'student123' ||
         cleanPassword === '123456'
       )) {
-        // Save the entered password as student's permanent password
         const { salt, hash } = hashPassword(cleanPassword);
         execute('UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?', hash, salt, new Date().toISOString(), user.id);
         isValid = true;
@@ -348,7 +376,7 @@ authRouter.post('/login', (req, res: Response) => {
 
       if (!isValid) {
         res.status(401).json({
-          error: 'Incorrect Password. If this is your first time signing in, you can use "acclStudent@2026" or sign in securely using Google Sign-In.',
+          error: 'Incorrect Password. Please use STUDENT SIGN IN with your registered Gmail.',
         });
         return;
       }
@@ -370,6 +398,7 @@ authRouter.post('/login', (req, res: Response) => {
         learning_level: user.learning_level || 'Book 1',
         assigned_teacher_id: user.assigned_teacher_id,
         assigned_teacher_name: user.assigned_teacher_name,
+        registered_by_id: user.registered_by_id || null,
         can_approve: Boolean(user.can_approve),
         can_admit: Boolean(user.can_admit),
         created_at: user.created_at,
@@ -382,8 +411,8 @@ authRouter.post('/login', (req, res: Response) => {
   }
 });
 
-// Google / Gmail Sign-In (no password required for authorized students and owner)
-const googleLoginHandler = (req: any, res: Response) => {
+// Google / Gmail Sign-In (password-free for registered students ONLY)
+const googleLoginHandler = async (req: any, res: Response) => {
   try {
     ensureDatabaseInitialized();
     const { email, full_name } = req.body || {};
@@ -394,12 +423,24 @@ const googleLoginHandler = (req: any, res: Response) => {
     }
 
     const cleanEmail = String(email).toLowerCase().trim();
-    let user = queryOne<User & { assigned_teacher_name?: string }>(`
-      SELECT u.*, t.full_name as assigned_teacher_name
-      FROM users u
-      LEFT JOIN users t ON u.assigned_teacher_id = t.id
-      WHERE LOWER(TRIM(u.email)) = LOWER(TRIM(?))
-    `, cleanEmail);
+
+    if (cleanEmail === 'farukharain962@gmail.com') {
+      res.status(403).json({
+        error: 'Owner account requires password verification. Please select OWNER SIGN IN.',
+      });
+      return;
+    }
+
+    let user = findUserByEmailOrAlias<User & { assigned_teacher_name?: string }>(cleanEmail);
+
+    // Fallback: check Cloud Firestore if not in SQLite yet
+    if (!user) {
+      const fsUser = await fetchFirestoreUserByEmail(cleanEmail);
+      if (fsUser) {
+        ensureUserInSqlite(fsUser);
+        user = findUserByEmailOrAlias<User & { assigned_teacher_name?: string }>(fsUser.email || cleanEmail);
+      }
+    }
 
     // If user not in users table yet, check student_admissions
     const admission = queryOne<StudentAdmission>('SELECT * FROM student_admissions WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))', cleanEmail);
@@ -410,8 +451,8 @@ const googleLoginHandler = (req: any, res: Response) => {
         const newUserId = crypto.randomUUID();
         const now = new Date().toISOString();
         execute(`
-          INSERT INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, assigned_teacher_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 'active', ?, ?, ?, ?)
+          INSERT INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, assigned_teacher_id, registered_by_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 'active', ?, ?, ?, ?, ?)
         `,
           newUserId,
           cleanEmail,
@@ -422,6 +463,7 @@ const googleLoginHandler = (req: any, res: Response) => {
           admission.whatsapp,
           admission.learning_level || 'Book 1',
           admission.assigned_teacher_id || null,
+          admission.registered_by_id || null,
           now,
           now
         );
@@ -440,31 +482,24 @@ const googleLoginHandler = (req: any, res: Response) => {
       }
     }
 
-    // Check alias for Mateen if needed
-    if (!user) {
-      if (cleanEmail === 'mateenbusinesswala@gmail.com') {
-        user = queryOne<User>('SELECT * FROM users WHERE LOWER(TRIM(email)) = ?', 'mateenbusnesswala@gmail.com');
-      } else if (cleanEmail === 'mateenbusnesswala@gmail.com') {
-        user = queryOne<User>('SELECT * FROM users WHERE LOWER(TRIM(email)) = ?', 'mateenbusinesswala@gmail.com');
-      }
-    }
-
-    // If owner signs in via Google/Gmail
-    if (!user && cleanEmail === 'farukharain962@gmail.com') {
-      const { salt, hash } = hashPassword('@farukh2199@');
-      const ownerId = 'user-owner-001';
-      const now = new Date().toISOString();
-      execute(`
-        INSERT OR REPLACE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'FARUKH BUSINESSMAN WALA', 'Haji Ghulam', '0345 3967083', 'owner', 'active', 'Book 1', 1, 1, ?, ?)
-      `, ownerId, cleanEmail, hash, salt, now, now);
-      user = queryOne<User>('SELECT * FROM users WHERE email = ?', cleanEmail);
-    }
-
     if (!user) {
       res.status(404).json({
-        error: `This Gmail address (${cleanEmail}) is not yet registered in the portal. Students must be registered by Farukh Businessman Wala in the Owner Dashboard first. Please contact Farukh Businessman Wala on WhatsApp (0345 3967083) to register your student account.`,
+        error: `This Gmail address (${cleanEmail}) is not yet registered in the portal. Students must be registered by Farukh Businessman Wala or your Teacher first.`,
         isUnregistered: true,
+      });
+      return;
+    }
+
+    if (user.role === 'owner') {
+      res.status(403).json({
+        error: 'Owner account requires password verification. Please select OWNER SIGN IN.',
+      });
+      return;
+    }
+
+    if (user.role === 'teacher' || user.role === 'admin') {
+      res.status(403).json({
+        error: 'Teacher accounts require password verification. Please select TEACHER SIGN IN.',
       });
       return;
     }
@@ -518,6 +553,7 @@ const googleLoginHandler = (req: any, res: Response) => {
         learning_level: user.learning_level || 'Book 1',
         assigned_teacher_id: user.assigned_teacher_id,
         assigned_teacher_name: user.assigned_teacher_name,
+        registered_by_id: user.registered_by_id || null,
         can_approve: Boolean(user.can_approve),
         can_admit: Boolean(user.can_admit),
         created_at: user.created_at,

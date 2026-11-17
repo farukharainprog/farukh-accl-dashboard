@@ -1,29 +1,28 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import type { UserProfile } from '../types';
 import {
   GraduationCap,
-  LogIn,
   MessageCircle,
   Phone,
   AlertCircle,
   Clock,
-  Sparkles,
   ShieldCheck,
-  CheckCircle2,
   Lock,
   ArrowRight,
+  Users,
 } from 'lucide-react';
 
 interface WelcomePageProps {
-  onSuccessLogin: () => void;
+  onSuccessLogin: (user?: UserProfile) => void;
 }
 
 export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const { login, settings } = useAuth();
 
-  // Mode: 'student' (Student Gmail Sign-in) vs 'owner' (Owner Password Sign-in)
-  const [authMode, setAuthMode] = useState<'student' | 'owner'>('student');
+  // Mode: 'student' (Gmail only) | 'teacher' (Gmail + Password) | 'owner' (Gmail + Password)
+  const [authMode, setAuthMode] = useState<'student' | 'teacher' | 'owner'>('student');
 
   // Student Google / Gmail Sign-In state
   const [studentGmail, setStudentGmail] = useState('');
@@ -31,6 +30,12 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
   const [studentError, setStudentError] = useState('');
   const [unregisteredNotice, setUnregisteredNotice] = useState(false);
   const [pendingNotice, setPendingNotice] = useState(false);
+
+  // Teacher Sign-In state
+  const [teacherEmail, setTeacherEmail] = useState('');
+  const [teacherPassword, setTeacherPassword] = useState('');
+  const [teacherLoading, setTeacherLoading] = useState(false);
+  const [teacherError, setTeacherError] = useState('');
 
   // Owner Password Sign-In state (Permanent Owner: farukharain962@gmail.com)
   const [ownerEmail, setOwnerEmail] = useState('farukharain962@gmail.com');
@@ -75,13 +80,12 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
         return;
       }
 
-      // Remember last signed in student Gmail on this device
       try {
         localStorage.setItem('accl_last_student_gmail', studentGmail.trim().toLowerCase());
       } catch {}
 
       login(res.token, res.user);
-      onSuccessLogin();
+      onSuccessLogin(res.user);
     } catch (err: any) {
       if (err?.data?.isUnregistered || err?.message?.toLowerCase().includes('not yet registered')) {
         setUnregisteredNotice(true);
@@ -94,7 +98,44 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
     }
   };
 
-  // Handle Owner / Staff Login (Email + Password)
+  // Handle Teacher Sign-In (Gmail + Password)
+  const handleTeacherLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTeacherError('');
+
+    if (!teacherEmail.trim() || !teacherPassword) {
+      setTeacherError('Please enter your teacher Gmail address and password.');
+      return;
+    }
+
+    setTeacherLoading(true);
+
+    try {
+      const res = await api.login({
+        email: teacherEmail.trim().toLowerCase(),
+        password: teacherPassword,
+        portal: 'teacher',
+      });
+
+      if (res.user?.status === 'suspended') {
+        setTeacherError('Your teacher account is suspended. Please contact the Academy Owner.');
+        return;
+      }
+
+      try {
+        localStorage.setItem('accl_last_teacher_gmail', teacherEmail.trim().toLowerCase());
+      } catch {}
+
+      login(res.token, res.user);
+      onSuccessLogin(res.user);
+    } catch (err: any) {
+      setTeacherError(err?.message || 'Teacher sign in failed. Please check your Gmail and password.');
+    } finally {
+      setTeacherLoading(false);
+    }
+  };
+
+  // Handle Owner Login (Gmail + Password)
   const handleOwnerLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOwnerError('');
@@ -104,6 +145,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
       const res = await api.login({
         email: ownerEmail.trim().toLowerCase(),
         password: ownerPassword,
+        portal: 'owner',
       });
 
       if (res.user?.status === 'suspended') {
@@ -112,7 +154,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
       }
 
       login(res.token, res.user);
-      onSuccessLogin();
+      onSuccessLogin(res.user);
     } catch (err: any) {
       setOwnerError(err?.message || 'Login failed. Please check your credentials.');
     } finally {
@@ -120,11 +162,13 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
     }
   };
 
-  // Auto-fill last used student Gmail on this device for frictionless access
+  // Auto-fill last used student/teacher Gmail on this device for frictionless access
   React.useEffect(() => {
     try {
       const savedGmail = localStorage.getItem('accl_last_student_gmail');
       if (savedGmail) setStudentGmail(savedGmail);
+      const savedTeacher = localStorage.getItem('accl_last_teacher_gmail');
+      if (savedTeacher) setTeacherEmail(savedTeacher);
     } catch {}
   }, []);
 
@@ -174,10 +218,10 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
       </div>
 
       {/* Main Login Viewport */}
-      <main className="max-w-md w-full mx-auto p-4 sm:p-6 my-auto">
+      <main className="max-w-lg w-full mx-auto p-4 sm:p-6 my-auto">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-8">
-          {/* Two Primary Options: STUDENT SIGN IN and OWNER SIGN IN */}
-          <div className="grid grid-cols-2 gap-2 p-1.5 rounded-xl bg-slate-100 mb-6">
+          {/* Three Primary Options: STUDENT SIGN IN, TEACHER SIGN IN, and OWNER SIGN IN */}
+          <div className="grid grid-cols-3 gap-1.5 p-1.5 rounded-xl bg-slate-100 mb-6">
             <button
               type="button"
               onClick={() => {
@@ -185,14 +229,30 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 setStudentError('');
                 setUnregisteredNotice(false);
               }}
-              className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+              className={`py-2.5 px-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 authMode === 'student'
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'bg-transparent text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
               }`}
             >
-              <GraduationCap className="w-4 h-4" />
+              <GraduationCap className="w-3.5 h-3.5 shrink-0" />
               <span>STUDENT SIGN IN</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('teacher');
+                setTeacherError('');
+              }}
+              className={`py-2.5 px-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                authMode === 'teacher'
+                  ? 'bg-teal-600 text-white shadow-md'
+                  : 'bg-transparent text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              <span>TEACHER SIGN IN</span>
             </button>
 
             <button
@@ -201,13 +261,13 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 setAuthMode('owner');
                 setOwnerError('');
               }}
-              className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+              className={`py-2.5 px-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 authMode === 'owner'
                   ? 'bg-slate-900 text-white shadow-md'
                   : 'bg-transparent text-slate-700 hover:text-slate-900 hover:bg-slate-200/60'
               }`}
             >
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
               <span>OWNER SIGN IN</span>
             </button>
           </div>
@@ -245,7 +305,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </p>
               </div>
 
-              {/* Unregistered Notice Banner */}
               {unregisteredNotice && (
                 <div className="p-4 mb-4 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950">
                   <div className="flex items-start gap-2">
@@ -255,7 +314,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                         Gmail Not Registered
                       </h4>
                       <p className="leading-relaxed">
-                        This Gmail address is not yet registered by the Owner (<strong>Farukh Businessman Wala</strong>). Students must be registered by the Owner in the Academy database first.
+                        This Gmail address is not yet registered by the Owner (<strong>Farukh Businessman Wala</strong>) or your Teacher. Students must be registered in the Academy database first.
                       </p>
                       <a
                         href={`${primaryWaLink}?text=${encodeURIComponent(`Hello Farukh Businessman Wala, please register my student Gmail account: ${studentGmail}`)}`}
@@ -271,7 +330,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </div>
               )}
 
-              {/* Pending Approval Notice */}
               {pendingNotice && (
                 <div className="p-4 mb-4 rounded-xl bg-blue-50 border border-blue-300 text-xs text-blue-950">
                   <div className="flex items-start gap-2">
@@ -288,7 +346,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </div>
               )}
 
-              {/* Error Alert */}
               {studentError && !unregisteredNotice && !pendingNotice && (
                 <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
@@ -296,7 +353,6 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
                 </div>
               )}
 
-              {/* Student Gmail Form (No Separate Password Required) */}
               <form onSubmit={handleStudentGoogleSignIn} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -343,7 +399,76 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onSuccessLogin }) => {
           )}
 
           {/* ========================================================= */}
-          {/* OPTION 2: OWNER SIGN IN (Gmail + Password Required)        */}
+          {/* OPTION 2: TEACHER SIGN IN (Gmail + Password Required)     */}
+          {/* ========================================================= */}
+          {authMode === 'teacher' && (
+            <div>
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-teal-600 border border-teal-700 flex items-center justify-center mx-auto mb-3 shadow-md">
+                  <Users className="w-6 h-6 text-white" />
+                </div>
+                <h2 className="text-lg font-bold text-slate-900">TEACHER SIGN IN</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Manage your students and review their submitted tasks
+                </p>
+              </div>
+
+              {teacherError && (
+                <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>{teacherError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleTeacherLoginSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Teacher Gmail Address
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="teacher@gmail.com"
+                    value={teacherEmail}
+                    onChange={(e) => setTeacherEmail(e.target.value)}
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-600 bg-slate-50 font-medium text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Teacher Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Enter teacher password"
+                    value={teacherPassword}
+                    onChange={(e) => setTeacherPassword(e.target.value)}
+                    className="w-full text-sm px-3.5 py-2.5 border rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-600"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={teacherLoading}
+                  className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Lock className="w-4 h-4 text-teal-100" />
+                  <span>{teacherLoading ? 'Verifying Teacher Account...' : 'SIGN IN TO TEACHER PORTAL'}</span>
+                </button>
+              </form>
+
+              <div className="mt-4 p-3 rounded-xl bg-teal-50/70 border border-teal-200 text-center text-[11px] text-teal-900">
+                <span>
+                  Register your students directly inside your Teacher Portal — only your students&apos; tasks will appear in your review queue.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* OPTION 3: OWNER SIGN IN (Gmail + Password Required)        */}
           {/* ========================================================= */}
           {authMode === 'owner' && (
             <div>
