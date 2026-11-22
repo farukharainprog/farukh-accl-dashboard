@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://farukh-accl-dashboard-pzrb.vercel.app/sitemap.xml
