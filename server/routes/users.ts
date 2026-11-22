@@ -357,9 +357,11 @@ usersRouter.get('/students-overview', authMiddleware, requireRole('owner', 'admi
     const allAttendance = queryAll<any>('SELECT id, student_id, date_key, duration_minutes, status, check_in_local FROM attendance_sessions');
 
     const students = userRows.map((r) => {
+      // Aliases come only from getStudentIdAliases (exact id + the one
+      // same-person legacy pair). The old extra rule that credited the demo
+      // account's ('student') submissions to a real person's overview was part
+      // of the cross-student mix-up and has been removed.
       const aliases = getStudentIdAliases(r.id);
-      if (r.email?.toLowerCase().includes('farukharain52')) aliases.push('student');
-      if (r.email?.toLowerCase().includes('mateen')) aliases.push('0e5e0061-f2ac-4ff6-8085-4d6d575938b9', 'std_1793115797698_qvwb');
 
       const studentSubs = allSubs.filter((s) => aliases.includes(String(s.student_id)));
       const approved = studentSubs.filter((s) => s.status === 'approved').length;

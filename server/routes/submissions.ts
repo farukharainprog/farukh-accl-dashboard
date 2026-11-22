@@ -1,6 +1,7 @@
 import { Router, type Response } from 'express';
 import crypto from 'node:crypto';
 import { queryAll, queryOne, execute, logAudit, getStudentIdAliases, ensureUserInSqlite, findUserByEmailOrAlias } from '../db.js';
+import { persistSubmissionToFirestore } from '../hydration.js';
 import { authMiddleware, requireActive, type AuthRequest } from '../auth.js';
 import type { Submission } from '../types.js';
 
@@ -233,6 +234,9 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
 
     logAudit(req.user.id, req.user.full_name, req.user.role, 'TASK_RESUBMITTED', `Resubmitted task ${task_id} (Version ${nextVersion})`);
 
+    // Mirror to the durable Firestore store (fire-and-forget)
+    void persistSubmissionToFirestore(existing.id);
+
     res.json({
       message: 'Task submitted successfully! Your submission is now in the Owner review queue.',
       submissionId: existing.id,
@@ -262,6 +266,9 @@ submissionsRouter.post('/', authMiddleware, requireActive, (req: AuthRequest, re
     );
 
     logAudit(req.user.id, req.user.full_name, req.user.role, 'TASK_SUBMITTED', `Submitted task ${task_id} (Version 1)`);
+
+    // Mirror to the durable Firestore store (fire-and-forget)
+    void persistSubmissionToFirestore(id);
 
     res.status(201).json({
       message: 'Task submitted successfully! It is now pending approval by Farukh Businessman Wala.',
@@ -294,10 +301,7 @@ submissionsRouter.get('/queue', authMiddleware, (req: AuthRequest, res: Response
            COALESCE(t.category, 'General') as task_category,
            COALESCE(t.book, 'Book 1') as task_book
     FROM submissions s
-    LEFT JOIN users u ON u.id = CASE
-      WHEN s.student_id = 'student' THEN COALESCE((SELECT id FROM users WHERE LOWER(TRIM(email)) = 'farukharain52@gmail.com' LIMIT 1), s.student_id)
-      ELSE s.student_id
-    END
+    LEFT JOIN users u ON u.id = s.student_id
     LEFT JOIN users t2 ON u.assigned_teacher_id = t2.id
     LEFT JOIN tasks t ON s.task_id = t.id
     WHERE 1=1
@@ -359,10 +363,7 @@ submissionsRouter.post('/:id/review', authMiddleware, (req: AuthRequest, res: Re
            u.assigned_teacher_id,
            u.registered_by_id
     FROM submissions s
-    LEFT JOIN users u ON u.id = CASE
-      WHEN s.student_id = 'student' THEN COALESCE((SELECT id FROM users WHERE LOWER(TRIM(email)) = 'farukharain52@gmail.com' LIMIT 1), s.student_id)
-      ELSE s.student_id
-    END
+    LEFT JOIN users u ON u.id = s.student_id
     WHERE s.id = ?
   `, submissionId);
 
@@ -523,6 +524,9 @@ submissionsRouter.post('/:id/review', authMiddleware, (req: AuthRequest, res: Re
     'SUBMISSION_REVIEWED',
     `Marked submission for ${sub.student_name} as ${decision.toUpperCase()}. Feedback: ${feedback || 'None'}`
   );
+
+  // Mirror the review decision to the durable Firestore store (fire-and-forget)
+  void persistSubmissionToFirestore(submissionId);
 
   res.json({
     message: `Submission successfully marked as ${decision === 'approved' ? 'Approved' : 'Needs Correction'}.`,

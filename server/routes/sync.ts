@@ -1,5 +1,6 @@
 import { Router, type Response } from 'express';
 import { queryAll, queryOne, execute, ensureDatabaseInitialized, logAudit } from '../db.js';
+import { hydrateSubmissionsFromFirestore } from '../hydration.js';
 import { hashPassword } from '../auth.js';
 import type { StudentAdmission, User } from '../types.js';
 
@@ -10,9 +11,14 @@ export const syncRouter = Router();
  * Ensures all student admissions, approvals, and user accounts are permanently
  * preserved across serverless container restarts and client devices.
  */
-syncRouter.post('/', (req, res: Response) => {
+syncRouter.post('/', async (req, res: Response) => {
   try {
     ensureDatabaseInitialized();
+
+    // Converge this instance with the durable Firestore store before answering,
+    // so a cold serverless instance never reports stale/missing submissions.
+    // Insert-only merge; internally timeout-guarded and non-fatal.
+    await hydrateSubmissionsFromFirestore();
     const { clientAdmissions, clientUsers } = req.body || {};
     const now = new Date().toISOString();
 
