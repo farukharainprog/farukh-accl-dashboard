@@ -431,7 +431,12 @@ export const api = {
       }
     }
 
-    const studentId = currentUser?.id ? String(currentUser.id) : (currentUser?.email || 'student');
+    const studentId = currentUser?.id ? String(currentUser.id) : (currentUser?.email || '');
+    if (!studentId) {
+      // Never file a submission under the shared demo identity 'student' —
+      // that made different students overwrite/block each other's submissions.
+      throw new Error('Please log in again to submit your task.');
+    }
     const studentName = currentUser?.full_name || 'Student';
     const studentEmail = (currentUser?.email || '').toLowerCase().trim();
 

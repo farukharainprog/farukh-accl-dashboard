@@ -167,13 +167,21 @@ export const firestoreService = {
       throw new Error('This task is already Approved and completed! It cannot be modified.');
     }
 
+    // Identity is mandatory: a submission must never be filed under the shared
+    // demo id 'student'. If we don't know who is submitting, fail loudly so the
+    // student logs in again instead of colliding with another student's work.
+    const ownerStudentId = sub.student_id || existingDoc?.student_id || '';
+    if (!ownerStudentId) {
+      throw new Error('Your student identity could not be verified. Please log out and log in again, then submit.');
+    }
+
     const id = sub.id || existingDoc?.id || `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const nextVersion = existingDoc ? Number(existingDoc.version || 1) + 1 : (sub.version || 1);
     const subRef = doc(firestoreDb, 'submissions', id);
 
     const data: Record<string, any> = {
       id,
-      student_id: sub.student_id || existingDoc?.student_id || 'student',
+      student_id: ownerStudentId,
       student_name: sub.student_name || existingDoc?.student_name || 'Student',
       student_email: sub.student_email || existingDoc?.student_email || '',
       assigned_teacher_id: sub.assigned_teacher_id ?? existingDoc?.assigned_teacher_id ?? null,
@@ -333,18 +341,14 @@ export const firestoreService = {
       let items = [...all];
       if (studentId) {
         const sId = String(studentId).trim();
-        const isMateen =
-          sId === '0e5e0061-f2ac-4ff6-8085-4d6d575938b9' ||
-          sId === 'std_1793115797698_qvwb' ||
-          sId.toLowerCase().includes('mateen');
+        // Same-person legacy id pair only (one student, two historical ids).
+        // Name-based matching was removed: names are not identity.
+        const samePersonIds = ['0e5e0061-f2ac-4ff6-8085-4d6d575938b9', 'std_1793115797698_qvwb'];
+        const isLegacyPairMember = samePersonIds.includes(sId);
 
         items = items.filter((a) => {
           if (String(a.student_id) === sId) return true;
-          if (isMateen && (
-            a.student_id === '0e5e0061-f2ac-4ff6-8085-4d6d575938b9' ||
-            a.student_id === 'std_1793115797698_qvwb' ||
-            (a.student_name && a.student_name.toLowerCase().includes('mateen'))
-          )) {
+          if (isLegacyPairMember && samePersonIds.includes(String(a.student_id))) {
             return true;
           }
           return false;
