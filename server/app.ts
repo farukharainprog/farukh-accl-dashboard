@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { ensureDatabaseInitialized } from './db.js';
+import { hydrateSubmissionsFromFirestore } from './hydration.js';
 import { authRouter } from './routes/auth.js';
 import { tasksRouter } from './routes/tasks.js';
 import { submissionsRouter } from './routes/submissions.js';
@@ -17,6 +18,11 @@ dotenv.config();
 
 // Ensure DB schema and seeds are initialized
 ensureDatabaseInitialized();
+
+// Best-effort: pull any durable Firestore submissions this (possibly fresh
+// serverless) instance is missing into SQLite. Insert-only, never overwrites.
+// Fire-and-forget so boot is never blocked by the network.
+void hydrateSubmissionsFromFirestore();
 
 export const app = express();
 

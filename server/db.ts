@@ -399,15 +399,11 @@ export function initDatabase(): void {
     );
   }
 
-  // 1. Ensure authentic users exist for legacy IDs
-  execute(`
-    INSERT OR IGNORE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
-    VALUES ('0e5e0061-f2ac-4ff6-8085-4d6d575938b9', 'mateenbusinesswala@gmail.com', 'google_verified', 'google_salt', 'Mateen Busness man wala', 'N/A', '03463311380', 'student', 'active', 'Book 1', 0, 0, '2026-10-27T15:43:17.698Z', '2026-10-27T15:43:17.698Z')
-  `);
-  execute(`
-    INSERT OR IGNORE INTO users (id, email, password_hash, salt, full_name, father_name, whatsapp, role, status, learning_level, can_approve, can_admit, created_at, updated_at)
-    VALUES ('student', 'student@rehanschool.edu.pk', 'google_verified', 'google_salt', 'Student', 'N/A', '03453967083', 'student', 'active', 'Book 1', 0, 0, '2026-10-27T15:41:19.818Z', '2026-10-27T15:41:19.821Z')
-  `);
+  // NOTE: No hardcoded user accounts are seeded here. Accounts are created only
+  // through registration/admissions/owner actions, and deleting an account in the
+  // dashboard must stay deleted — a boot-time seed must never resurrect it.
+  // (Previously this block re-created a demo 'student' account and a legacy
+  // student account on every boot, undoing owner deletions.)
 
   // 2. Ensure submissions seeded from verified backup if empty
   const subCount = queryOne<{ count: number }>('SELECT COUNT(*) as count FROM submissions');
@@ -419,7 +415,7 @@ export function initDatabase(): void {
         if (Array.isArray(backup.submissions)) {
           for (const s of backup.submissions) {
             execute(`
-              INSERT OR REPLACE INTO submissions (
+              INSERT OR IGNORE INTO submissions (
                 id, student_id, task_id, version, status,
                 fb_link, yt_link, li_link, insta_link, other_link,
                 file_url, file_name, student_notes, reviewer_id, reviewer_name, reviewer_feedback,
@@ -453,7 +449,7 @@ export function initDatabase(): void {
         if (Array.isArray(backup.attendance)) {
           for (const a of backup.attendance) {
             execute(`
-              INSERT OR REPLACE INTO attendance_sessions (
+              INSERT OR IGNORE INTO attendance_sessions (
                 id, student_id, check_in_time, check_in_local, check_out_time, check_out_local, duration_minutes, status, date_key
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
@@ -481,20 +477,20 @@ export function getStudentIdAliases(studentId: string): string[] {
   if (!studentId) return [];
   const cleanId = String(studentId).trim();
   const list = [cleanId];
+  // Same-person legacy alias ONLY: this one student historically held two ids
+  // (an older Firestore-era id and his current id) and his older submissions are
+  // stored under the current id. Both ids belong to the SAME person, so grouping
+  // them cannot mix two different students' submissions.
   if (
     cleanId === '0e5e0061-f2ac-4ff6-8085-4d6d575938b9' ||
-    cleanId === 'std_1793115797698_qvwb' ||
-    cleanId.toLowerCase().includes('mateen')
+    cleanId === 'std_1793115797698_qvwb'
   ) {
     list.push('0e5e0061-f2ac-4ff6-8085-4d6d575938b9', 'std_1793115797698_qvwb');
   }
-  if (
-    cleanId === 'std_1793115679818_1ndy' ||
-    cleanId === 'student' ||
-    cleanId.toLowerCase().includes('farukharain52')
-  ) {
-    list.push('std_1793115679818_1ndy', 'student');
-  }
+  // REMOVED: the old grouping that treated the demo account id 'student' and a
+  // real person's test account as the same identity. That made one person's
+  // submission block/overwrite the other's (the "second student cannot submit"
+  // bug). Different accounts are never aliases of each other.
   return Array.from(new Set(list));
 }
 

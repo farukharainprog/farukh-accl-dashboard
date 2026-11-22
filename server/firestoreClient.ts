@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, doc, getDoc, query, where, limit, type Firestore } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, query, where, limit, type Firestore } from 'firebase/firestore';
 import { normalizeGmail } from './db.js';
 
 let cachedFsDb: Firestore | null = null;
@@ -96,6 +96,53 @@ export async function fetchFirestoreUserById(idOrEmail: string): Promise<any | n
     })(),
     3500,
     null
+  );
+}
+
+/**
+ * Read ALL submission docs from Cloud Firestore.
+ * Firestore is the only store that survives Vercel serverless restarts, and the
+ * web client already writes every submission/review there first. The server
+ * uses this to hydrate its per-instance SQLite copy (see server/hydration.ts).
+ * Returns [] on any failure/timeout — callers must treat it as best-effort.
+ */
+export async function fetchFirestoreSubmissions(): Promise<any[]> {
+  const fsDb = getServerFirestore();
+  if (!fsDb) return [];
+  return withTimeout(
+    (async () => {
+      try {
+        const snap = await getDocs(collection(fsDb, 'submissions'));
+        return snap.docs.map((d) => d.data());
+      } catch (err) {
+        console.warn('[ServerFirestore] fetchFirestoreSubmissions error:', err);
+        return [];
+      }
+    })(),
+    8000,
+    []
+  );
+}
+
+/**
+ * Write-through: upsert one submission doc into Firestore (merge by doc id).
+ * Fire-and-forget safe: never throws, returns false on failure/timeout.
+ */
+export async function upsertFirestoreSubmission(docData: Record<string, any>): Promise<boolean> {
+  const fsDb = getServerFirestore();
+  if (!fsDb || !docData?.id) return false;
+  return withTimeout(
+    (async () => {
+      try {
+        await setDoc(doc(fsDb, 'submissions', String(docData.id)), docData, { merge: true });
+        return true;
+      } catch (err) {
+        console.warn('[ServerFirestore] upsertFirestoreSubmission error:', err);
+        return false;
+      }
+    })(),
+    8000,
+    false
   );
 }
 
